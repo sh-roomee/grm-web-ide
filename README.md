@@ -22,6 +22,9 @@ IDE"다 — 코드를 읽고 찾는 일은 넓게 허용하고, 쓰기는 stage/
 길은 검색뿐이고, 디렉토리를 펼쳐 돌아다니는 트리는 만들지 않는다.
 자세한 범위 규칙은 [CLAUDE.md](CLAUDE.md) 참고.
 
+> **처음이라면 [docs/ONBOARDING.md](docs/ONBOARDING.md)부터 읽으세요.** 왜 필요한지,
+> AI와 한 사이클을 어떻게 도는지, 무엇을 기대하면 안 되는지가 10분 안에 정리됩니다.
+
 ## 검색 — Shift 두 번, ⌘P, ⌘⇧F
 
 ![통합 검색 — 텍스트 탭에서 git grep 결과](docs/images/search-everywhere.jpg)
@@ -428,6 +431,7 @@ dev 서버가 출력한 토큰을 붙여 `http://localhost:5173/?t=<토큰>` 으
 
 ## 문서
 
+- [docs/ONBOARDING.md](docs/ONBOARDING.md) — **처음 받은 사람용.** 왜 쓰는지와 작업 흐름
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — 구조와 설계 결정
 - [docs/API.md](docs/API.md) — HTTP API
 - [docs/ROADMAP.md](docs/ROADMAP.md) — 진행 상황과 다음 단계

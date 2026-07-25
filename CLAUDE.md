@@ -54,6 +54,7 @@ diff만으로는 판단이 안 되는 순간이 계속 나왔다. 바뀐 줄의 
 | `docs/API.md` | HTTP 엔드포인트나 응답 스키마 변경 |
 | `docs/ROADMAP.md` | 기능 완료, 우선순위 변경, 새 항목 추가 |
 | `README.md` | 설치/실행 방법, CLI 옵션 변경 |
+| `docs/ONBOARDING.md` | 작업 흐름이 바뀌거나, 기대하면 안 되는 것의 목록이 바뀔 때 |
 | `CLAUDE.md` | 범위 규칙이나 작업 방식 변경 |
 
 설계 판단을 바꿀 때는 `docs/ARCHITECTURE.md`의 "설계 결정" 절에 **왜 그렇게
