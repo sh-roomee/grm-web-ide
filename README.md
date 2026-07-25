@@ -199,7 +199,7 @@ HEAD    58f27b2 add locales and noiseCancel lib · 7 minutes ago
 
 #### 브랜치 선택 · 검색
 
-![브랜치 검색과 커밋 검색](docs/images/search-view.jpg)
+![브랜치 목록 — 열면 바로 타이핑해서 걸러낸다](docs/images/search-branch.jpg)
 
 오른쪽 위 `⎇ 전체 브랜치` 를 누르면 브랜치 목록이 열린다. 열리면 바로 타이핑할 수
 있어서, 브랜치가 많아도 이름 몇 자로 찾는다. 하나만 남았을 때 `Enter`로 고른다.
@@ -211,6 +211,8 @@ HEAD    58f27b2 add locales and noiseCancel lib · 7 minutes ago
 수도 있다.
 
 #### 커밋 검색
+
+![커밋 검색 — 코드 내용으로 찾은 결과](docs/images/search-view.jpg)
 
 검색 대상을 골라서 찾는다.
 
