@@ -4,7 +4,8 @@ import crypto from 'node:crypto'
 import process from 'node:process'
 
 import { createServer } from '../server/index.js'
-import { resolveRepoRoot } from '../server/git.js'
+import { resolveRepoRoot, currentBranch, headCommit, status } from '../server/git.js'
+import { renderSummary } from './summary.js'
 
 const DEFAULT_PORT = 4317
 const PORT_TRIES = 20
@@ -83,9 +84,21 @@ async function main() {
   const { port } = server.address()
 
   const url = `http://${HOST}:${port}/?t=${token}`
-  console.log(`gitshow  ${repo}`)
-  console.log(`         ${url}`)
-  if (dev) console.log(`         (dev) 프론트는 vite dev server에서 확인: http://localhost:5173/?t=${token}`)
+
+  // 요약을 만드는 데 실패해도 주소는 반드시 보여준다.
+  try {
+    const [branch, head, changes] = await Promise.all([
+      currentBranch(repo),
+      headCommit(repo),
+      status(repo),
+    ])
+    console.log(renderSummary({ repo, branch, head, status: changes, url, dev, token }))
+  } catch (err) {
+    console.log(`gitshow  ${repo}`)
+    console.log(`         ${url}`)
+    console.log(`         (요약을 만들지 못했습니다: ${err.message})`)
+  }
+
   if (opts.open && !dev) openBrowser(url)
 
   let shuttingDown = false

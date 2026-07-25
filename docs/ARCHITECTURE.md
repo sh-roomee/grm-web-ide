@@ -21,6 +21,7 @@ gitshow  ──실행──▶  bin/gitshow.js
 | 경로 | 역할 |
 | --- | --- |
 | `bin/gitshow.js` | CLI. 인자 파싱, 저장소 루트 탐색, 토큰 생성, 포트 확보, 브라우저 실행 |
+| `bin/summary.js` | 실행 시 터미널에 찍는 요약 (변경 규모·파일 목록·주소) |
 | `server/index.js` | Express 앱. 라우팅, 토큰 인증, 경로 검증, SSE 브로드캐스트, 정적 파일 |
 | `server/git.js` | git 명령 래퍼. status/diff/stage 파싱 |
 | `server/diff.js` | unified diff 파서 + 단어 단위 diff. 순수 함수 |
@@ -36,6 +37,7 @@ gitshow  ──실행──▶  bin/gitshow.js
 | `web/src/highlight/languages/*.js` | 언어별 플러그인 |
 | `test/diff.test.js` | diff 파서 테스트 |
 | `test/highlight.test.js` | 문법 강조 / 구획 판단 테스트 |
+| `test/summary.test.js` | 터미널 요약 테스트 |
 
 ## 설계 결정
 
@@ -127,6 +129,21 @@ IDE는 창에 포커스를 줘야 갱신되고, 그게 오히려 방해가 된�
 그래서 종료 시 순서가 있다: 모든 SSE 응답을 `end()` → `closeAllConnections()` →
 `server.close()`. 그래도 남는 연결이 있으면 1초 후 그냥 나간다. 두 번째 Ctrl-C는
 즉시 종료다.
+
+### 터미널에도 요약을 찍는다
+
+주소만 찍고 끝내면 "브라우저를 봐야 뭐가 바뀐지 안다"가 된다. 이 도구를 쓰는
+사람은 터미널에 손을 두고 있으니, 브라우저를 열기 전에 규모를 알 수 있어야 한다.
+변경이 없으면 열 필요조차 없다는 것도 그 자리에서 알게 된다.
+
+정렬은 글자 수가 아니라 **표시 폭**으로 계산한다. `경로`·`변경` 같은 한글 라벨은
+터미널에서 두 칸씩 차지해서, `padEnd`로 맞추면 `HEAD` 줄과 어긋난다.
+
+색은 `process.stdout.isTTY`일 때만 넣고 `NO_COLOR`를 존중한다. 로그로 리다이렉트한
+출력에 escape 코드가 섞이면 안 된다. 덕분에 테스트에서도 평문으로 검사할 수 있다.
+
+요약을 만들다 실패해도 주소는 반드시 출력한다. 부가 정보 때문에 본래 기능을
+못 쓰게 되면 안 된다.
 
 ### 파일 전체 보기와 변경 위치 눈금
 
