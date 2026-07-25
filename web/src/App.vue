@@ -113,9 +113,13 @@ async function openPalette(tab = 'all') {
 function fileAsDiff(doc) {
   if (!doc) return null
   return {
+    path: doc.path,
+    sha: doc.sha,
     language: doc.language,
     sections: doc.sections,
     binary: doc.binary,
+    // 이미지면 "바이너리 파일입니다" 대신 그림을 보여준다
+    preview: doc.preview ?? null,
     truncated: doc.truncated,
     lineCount: doc.lineCount,
     changes: 0,

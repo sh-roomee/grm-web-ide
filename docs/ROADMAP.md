@@ -80,6 +80,10 @@ IntelliJ가 구조적으로 못 하는 일. git에는 HEAD와 index만 있고 "�
 
 여기까지 오면 "변경 확인 → stage → 커밋" 한 사이클이 브라우저에서 닫힌다.
 
+- [x] **이미지 미리보기** — png·jpg·gif·webp·avif·bmp·ico·svg를 이전/이후로 나란히.
+      용량과 픽셀 크기 변화를 함께 알린다. `git diff`가 "Binary files differ" 한 줄만
+      주는 구간이라 터미널에서는 확인할 방법이 없었다. 기준점 대비·커밋 diff·⌘P
+      파일 보기에서 모두 동작한다
 - [ ] **커밋** — 메시지 입력, amend, 커밋 후 목록 갱신
 - [ ] **hunk / 줄 단위 stage** — `git add -p` 대체. 터미널에서 가장 짜증나는 작업
 - [ ] **파일 되돌리기** (checkout --) — 되돌리기 전 확인 필수

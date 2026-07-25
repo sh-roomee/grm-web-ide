@@ -488,6 +488,57 @@ const BINARY_SNIFF_BYTES = 8000
  * 파일 내용을 줄 배열로 읽는다. 커밋을 지정하면 그 시점의 내용을 읽는다.
  * 편집은 하지 않으므로 읽기 전용이다.
  */
+/**
+ * 미리보기용 원본 바이트.
+ *
+ * 이미지를 보여주려면 텍스트로 디코딩하면 안 되므로 buffer로 받는다. `rev`가
+ * null이면 워킹트리 파일을 그대로 읽고, 그 밖에는 git 객체에서 꺼낸다
+ * (`:path`는 index, `HEAD:path`는 커밋된 내용).
+ *
+ * 없는 blob(추가된 파일의 '이전', 지워진 파일의 '이후')은 예외가 아니라 null이다 —
+ * 한쪽만 있는 것이 정상 상태다.
+ */
+export async function readBlob(repo, relPath, { rev = null, maxBytes = 0 } = {}) {
+  let buffer
+  if (rev === null) {
+    try {
+      buffer = await fs.readFile(path.resolve(repo, relPath))
+    } catch {
+      return null
+    }
+  } else {
+    try {
+      buffer = await execFileAsync('git', ['show', `${rev}:${relPath}`], {
+        cwd: repo,
+        maxBuffer: MAX_BUFFER,
+        encoding: 'buffer',
+      }).then((r) => r.stdout)
+    } catch {
+      return null
+    }
+  }
+  if (maxBytes && buffer.length > maxBytes) return { tooLarge: true, size: buffer.length }
+  return { buffer, size: buffer.length }
+}
+
+/** 미리보기 크기만 알아본다. 내용을 읽지 않으므로 큰 파일에도 싸다. */
+export async function blobSize(repo, relPath, { rev = null } = {}) {
+  if (rev === null) {
+    try {
+      const stat = await fs.stat(path.resolve(repo, relPath))
+      return stat.isFile() ? stat.size : null
+    } catch {
+      return null
+    }
+  }
+  const out = await git(repo, ['cat-file', '-s', `${rev}:${relPath}`], { allowFail: true })
+  const size = Number.parseInt(out.trim(), 10)
+  return Number.isFinite(size) ? size : null
+}
+
+/** 기준점 ref 이름. 미리보기가 "기준점 대비"를 읽을 때 쓴다. */
+export const baselineRef = () => BASELINE_REF
+
 export async function fileContent(repo, relPath, { sha = null, maxLines = 20000 } = {}) {
   let buffer
   if (sha) {

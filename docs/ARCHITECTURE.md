@@ -29,6 +29,7 @@ grmide  ──실행──▶  bin/grmide.js
 | `server/log.js` | `git log` 파싱 + 그래프 레인 계산. 순수 함수 |
 | `server/state.js` | 리뷰 코멘트·확인 표시 저장 + AI에게 넘길 프롬프트 생성 |
 | `server/risks.js` | AI 변경의 위험 신호 판별. 순수 함수 |
+| `server/preview.js` | 그림으로 볼 수 있는 형식 판단 + 크기 표기. 순수 함수 |
 | `server/watcher.js` | chokidar 감시. 디바운스 후 콜백 |
 | `web/src/api.js` | 서버 통신. 토큰 보관 |
 | `web/src/App.vue` | 상태 소유. 상태 로딩, 파일 선택, 키보드 |
@@ -43,6 +44,7 @@ grmide  ──실행──▶  bin/grmide.js
 | `web/src/composables/useHistory.js` | 히스토리 상태 (로그 페이지, 선택한 커밋) |
 | `web/src/components/DiffViewer.vue` | 우측 diff 뷰어 (나란히 · 한 줄 · 파일 한 컬럼) |
 | `web/src/inline.js` | 나란히 행 → 한 줄 목록 펼치기. 순수 함수 |
+| `web/src/components/ImagePreview.vue` | 이미지 미리보기 (이전/이후, 용량·픽셀 변화) |
 | `web/src/composables/useReview.js` | 파일별 "확인함" 상태 |
 | `web/src/style.css` | 디자인 토큰 (색·글꼴·모양·움직임) |
 | `web/index.html` | 문서 제목(`GRM IDE`)·파비콘·`theme-color` |
@@ -57,6 +59,7 @@ grmide  ──실행──▶  bin/grmide.js
 | `test/state.test.js` | 프롬프트 생성 테스트 |
 | `test/risks.test.js` | 위험 신호 판별 테스트 |
 | `test/inline.test.js` | 한 줄 보기 펼치기 테스트 |
+| `test/preview.test.js` | 미리보기 형식 판단 테스트 |
 
 ## 설계 결정
 
@@ -248,6 +251,31 @@ git diff-tree -r <baseline> <현재 트리>                          → 새로 
 검색에서 빠진다** — 이 도구를 쓰는 상황에서 가장 자주 찾을 대상이 안 나온다는 뜻이다.
 그래서 `--untracked`를 붙인다. `.gitignore`는 그대로 지켜지므로 `node_modules`가
 결과를 덮지도 않는다.
+
+### 이미지는 diff 대신 그림을 보여준다
+
+png을 바꾸면 `git diff`는 "Binary files differ" 한 줄을 준다. 터미널에서 이걸 확인할
+방법이 없어서, 이미지가 섞인 변경은 그동안 통째로 판단을 미루는 구간이었다.
+
+**확장자로 판단한다.** 내용을 스니핑하면 "이 바이트열이 정말 png인가"를 판정하는
+일이 되고, 틀리면 브라우저에 잘못된 Content-Type을 내보낸다. 표에 없는 확장자는
+미리보기를 하지 않는다 — 임의 파일을 임의 타입으로 흘리지 않기 위해서다.
+
+**리비전은 클라이언트가 정하지 않는다.** `/api/blob`은 rev를 받지 않고, diff를
+요청할 때와 같은 파라미터(`sha`·`staged`·`base`·`untracked`)를 받아 서버가 이전/이후를
+해석한다. 임의 리비전 읽기 엔드포인트가 되지 않고, 화면에서 보고 있는 것과 어긋날
+수도 없다. 그래서 "기준점 대비"를 누르면 이미지도 **기준점 시점의 그림**과 비교된다 —
+AI가 20분 동안 에셋을 세 번 바꿨을 때 마지막 한 번만 보는 길이다.
+
+**svg는 `<img>`로만 그린다.** 문서에 직접 심으면 svg 안의 스크립트가 실행된다.
+svg는 텍스트라 diff도 되므로 `미리보기` 토글로 두 쪽을 오간다. 기본은 그림이다 —
+svg를 열어 보는 이유는 대개 "어떻게 생겼나"다.
+
+**픽셀 크기는 서버가 재지 않는다.** 브라우저가 그림을 받으면 아는 값
+(`naturalWidth`)이라 서버가 이미지를 디코딩할 이유가 없다. 대신 **바이트 수**는
+서버가 `cat-file -s`로 싸게 알 수 있어 diff 응답에 함께 넣는다. 용량 변화와 픽셀
+변화는 diff 텍스트로 절대 보이지 않는 정보라 화면 위에 띠로 알린다 — 에셋이 조용히
+열 배가 되는 일은 실제로 자주 일어난다.
 
 ### 좁은 폭에서는 한 줄로 본다
 

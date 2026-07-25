@@ -96,6 +96,7 @@ x-grmide-token: <토큰>
   "path": "src/AudioTest.vue",
   "staged": false,
   "untracked": false,
+  "preview": null,
   "binary": false,
   "truncated": false,
   "language": "vue",
@@ -131,6 +132,27 @@ x-grmide-token: <토큰>
   ]
 }
 ```
+
+### preview — 그림으로 볼 수 있는 파일
+
+png·jpg·gif·webp·avif·bmp·ico·svg면 `preview`가 채워진다. 그 밖에는 `null`이다.
+
+```json
+{
+  "preview": {
+    "kind": "image",
+    "mime": "image/png",
+    "before": 403,
+    "after": 132308
+  }
+}
+```
+
+- `before` / `after`는 **바이트 수**다. 한쪽이 `null`이면 그 쪽에 파일이 없다
+  (추가된 파일은 `before: null`, 지워진 파일은 `after: null`)
+- 이미지의 픽셀 크기는 여기 없다. 브라우저가 그림을 받아 보면 아는 값이라
+  서버가 디코딩할 이유가 없다
+- 내용은 [`GET /api/blob`](#get-apiblob)으로 따로 받는다
 
 ### row 규칙
 
@@ -396,6 +418,7 @@ PUT은 맵을 통째로 갈아 끼운다 — 토글·전체 확인·정리가 �
 {
   "path": "server/log.js",
   "sha": null,
+  "preview": null,
   "language": "javascript",
   "sections": null,
   "binary": false,
@@ -407,7 +430,45 @@ PUT은 맵을 통째로 갈아 끼운다 — 토글·전체 확인·정리가 �
 
 - 앞 8000바이트에 NUL이 있으면 `binary: true`이고 `lines`는 빈 배열이다
 - 20,000줄까지만 보내고 넘으면 `truncated: true`
+- 이미지면 `preview`가 채워진다 (`before`는 항상 `null` — 파일 하나를 볼 때는
+  비교 대상이 없다). 화면은 "바이너리 파일입니다" 대신 그림을 보여준다
 - 저장소 밖 경로는 403
+
+## GET /api/blob
+
+미리보기 원본 바이트. 이미지를 `<img src>`로 그릴 때 쓴다.
+
+| 파라미터 | 필수 | 설명 |
+| --- | --- | --- |
+| `path` | O | 저장소 루트 기준 상대 경로 |
+| `side` | | `before` \| `after` (기본 `after`) |
+| `staged` | | `1`이면 index 내용 (`git show :<path>`) |
+| `untracked` | | `1`이면 `before`가 없다 (404) |
+| `base` | | `1`이면 `before`가 기준점(`refs/grmide/baseline`) 내용 |
+| `sha` | | 커밋 해시. `after`는 그 커밋, `before`는 첫 부모(`<sha>^`) |
+| `t` | | 토큰. `<img>`는 헤더를 붙일 수 없어 쿼리로 받는다 |
+
+**리비전을 직접 받지 않는다.** diff를 요청할 때와 같은 파라미터를 넘기면 서버가
+이전/이후를 해석한다. 임의 리비전을 읽는 엔드포인트가 되지 않고, 화면에서 보고
+있는 것과 어긋날 수도 없다.
+
+| side | 해석 |
+| --- | --- |
+| `after` | `sha` → `<sha>:<path>` / `staged` → `:<path>` / 그 밖 → 워킹트리 파일 |
+| `before` | `untracked` → 없음 / `sha` → `<sha>^:<path>` / `base` → `refs/grmide/baseline:<path>` / 그 밖 → `HEAD:<path>` |
+
+응답은 원본 바이트다. `Content-Type`은 확장자 표에서 온 값만 쓰고
+`X-Content-Type-Options: nosniff`를 붙인다. git 객체는 내용이 곧 이름이라
+`immutable`로, 워킹트리와 index는 `no-store`로 보낸다.
+
+svg도 이 경로로 나가지만 화면은 `<img>`로만 그린다 — 문서에 직접 심으면 svg 안의
+스크립트가 실행된다.
+
+| 상태 | 뜻 |
+| --- | --- |
+| 404 | 그 쪽에 파일이 없다 (추가/삭제된 파일의 반대쪽) |
+| 413 | 12MB를 넘어 미리보기를 하지 않는다 |
+| 415 | 표에 없는 형식 — 미리볼 수 없다 |
 
 ## GET /api/grep
 

@@ -3,6 +3,8 @@ import { computed, nextTick, ref, watch } from 'vue'
 
 import { buildSpans, tokenizeLine, findRanges } from '../highlight/index.js'
 import { flattenInline } from '../inline.js'
+import { blobUrl } from '../api.js'
+import ImagePreview from './ImagePreview.vue'
 
 const props = defineProps({
   file: { type: Object, default: null },
@@ -146,6 +148,32 @@ const rangeLabel = (comment) =>
   comment.endLine && comment.endLine > comment.line
     ? `${comment.line}–${comment.endLine}행`
     : `${comment.line}행`
+
+/**
+ * 이미지 미리보기.
+ *
+ * png 같은 바이너리는 diff가 아예 없으니 그림밖에 보여줄 것이 없다. svg는 텍스트라
+ * diff도 되는데, 그래도 기본은 그림이다 — svg를 열어 보는 이유는 대개 "어떻게
+ * 생겼나"이기 때문이다. 텍스트 diff는 토글로 남긴다.
+ */
+const showPreview = ref(true)
+
+const previewOn = computed(() => {
+  if (!props.diff?.preview) return false
+  return props.diff.binary || showPreview.value
+})
+
+/** 미리보기 주소는 지금 보고 있는 diff와 같은 파라미터로 만든다. */
+const previewUrls = computed(() => {
+  const diff = props.diff
+  if (!diff?.preview) return { before: '', after: '' }
+  const target = { path: diff.path ?? props.file?.path, staged: diff.staged, untracked: diff.untracked }
+  const opts = { sha: diff.sha ?? null, base: Boolean(diff.base) }
+  return {
+    before: blobUrl(target, 'before', opts),
+    after: blobUrl(target, 'after', opts),
+  }
+})
 
 const wrap = ref(false)
 const scroller = ref(null)
@@ -405,7 +433,7 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
         <span class="path" :title="file.path">{{ file.path }}</span>
         <span class="badge">{{ badge || (file.staged ? 'staged' : 'working tree') }}</span>
 
-        <div v-if="!single" class="nav">
+        <div v-if="!single && !previewOn" class="nav">
           <button title="이전 변경 (↑)" @click="goto(-1)">↑</button>
           <button title="다음 변경 (↓)" @click="goto(1)">↓</button>
           <span class="pos">{{ blockCount ? cursor + 1 : 0 }} / {{ blockCount }}</span>
@@ -436,7 +464,7 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
           이 기능이 필요한 좁은 폭에서 바가 먼저 넘친다.
         -->
         <button
-          v-if="!single"
+          v-if="!single && !previewOn"
           class="ctl"
           :class="{ on: layout === 'inline' }"
           title="한 줄로 보기 — 터미널 옆에 좁게 띄웠을 때. 끄면 좌우로 나란히"
@@ -445,7 +473,7 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
           한 줄로
         </button>
 
-        <div v-if="!single" class="modes" role="group" aria-label="보기 범위">
+        <div v-if="!single && !previewOn" class="modes" role="group" aria-label="보기 범위">
           <button
             v-for="mode in VIEW_MODES"
             :key="mode.context"
@@ -458,14 +486,31 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
           </button>
         </div>
 
-        <button class="ctl" :class="{ on: wrap }" title="긴 줄 접기" @click="wrap = !wrap">
+        <!-- 그림으로도, 텍스트로도 볼 수 있는 파일(svg)에만 뜬다 -->
+        <button
+          v-if="diff?.preview && !diff.binary"
+          class="ctl"
+          :class="{ on: showPreview }"
+          title="그림으로 보기 / 텍스트 diff로 보기"
+          @click="showPreview = !showPreview"
+        >
+          미리보기
+        </button>
+
+        <button
+          v-if="!previewOn"
+          class="ctl"
+          :class="{ on: wrap }"
+          title="긴 줄 접기"
+          @click="wrap = !wrap"
+        >
           줄바꿈
         </button>
 
         <span class="spacer" />
 
         <!-- 파일 안에서 찾기 (Cmd+F) -->
-        <div v-if="findOpen" class="find">
+        <div v-if="findOpen && !previewOn" class="find">
           <input
             ref="findInput"
             v-model="findTerm"
@@ -483,9 +528,11 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
           <button title="다음 (Enter)" @click="stepHit(1)">↓</button>
           <button title="닫기 (Esc)" @click="closeFind()">✕</button>
         </div>
-        <button v-else class="ctl" title="이 파일에서 찾기 (⌘F)" @click="openFind()">찾기</button>
+        <button v-else-if="!previewOn" class="ctl" title="이 파일에서 찾기 (⌘F)" @click="openFind()">
+          찾기
+        </button>
 
-        <span class="summary">
+        <span v-if="!previewOn" class="summary">
           {{ single ? `${diff?.lineCount ?? 0}줄` : `${diff?.changes ?? 0} differences` }}
         </span>
         <slot name="actions" />
@@ -519,13 +566,24 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
       <div
         ref="scroller"
         class="scroll"
-        :class="[{ wrap }, inlineOn ? 'inline' : 'split', selectSide && `sel-${selectSide}`]"
+        :class="[
+          { wrap, previewing: previewOn },
+          inlineOn ? 'inline' : 'split',
+          selectSide && `sel-${selectSide}`,
+        ]"
         @mouseup="gutterUp()"
         @mouseleave="dragging = null"
       >
         <p v-if="error" class="notice err">{{ error }}</p>
         <p v-else-if="loading" class="notice">불러오는 중…</p>
         <p v-else-if="!file" class="notice"></p>
+        <ImagePreview
+          v-else-if="previewOn"
+          :preview="diff.preview"
+          :before-url="previewUrls.before"
+          :after-url="previewUrls.after"
+          :single="single"
+        />
         <p v-else-if="diff?.binary" class="notice">
           바이너리 파일입니다. 내용을 비교할 수 없습니다.
         </p>
@@ -879,6 +937,17 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
   min-width: 0;
   order: 1;
   overflow: auto;
+}
+/* 미리보기는 스크롤 대신 패널을 채운다. 이미지 아래에 빈 공간이 남으면 안 된다 */
+.scroll.previewing {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.scroll.previewing > * {
+  min-height: 0;
+}
+.scroll:not(.previewing) {
   font-family: var(--mono);
   font-size: 12.5px;
   line-height: var(--row-height);

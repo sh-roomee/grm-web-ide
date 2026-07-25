@@ -7,6 +7,7 @@ import * as gitApi from './git.js'
 import { parseUnifiedDiff } from './diff.js'
 import { highlightInfo } from './language.js'
 import { analyzeRisks, splitDiffFiles } from './risks.js'
+import { previewInfo } from './preview.js'
 import {
   readState,
   saveReviewed,
@@ -52,6 +53,30 @@ function safeJoin(repo, relPath) {
  */
 function validSha(value) {
   return typeof value === 'string' && /^[0-9a-f]{4,40}$/i.test(value) ? value : null
+}
+
+/** 미리보기로 내보낼 수 있는 최대 크기. 이보다 크면 브라우저에 밀어넣지 않는다. */
+const MAX_PREVIEW_BYTES = 12 * 1024 * 1024
+
+/**
+ * 미리보기가 읽을 git rev를 정한다.
+ *
+ * rev를 클라이언트가 직접 보내게 하지 않는 이유: 그러면 임의 리비전을 읽는
+ * 엔드포인트가 된다. 대신 diff를 요청할 때와 **같은 파라미터**(sha·staged·base)를
+ * 받아 서버가 이전/이후를 해석한다. 화면에서 보고 있는 것과 어긋날 수 없다.
+ *
+ * null은 "워킹트리 파일", false는 "그 쪽은 없다"(추가/삭제된 파일)를 뜻한다.
+ */
+function previewRev({ side, sha, staged, base, untracked, baselineRef }) {
+  if (side === 'after') {
+    if (sha) return sha
+    if (staged) return '' // `git show :path` = index
+    return null
+  }
+  if (untracked) return false // 새로 생긴 파일에는 이전이 없다
+  if (sha) return `${sha}^`
+  if (base && baselineRef) return baselineRef
+  return 'HEAD'
 }
 
 // 커밋 검색 대상. 이 목록에 없는 값은 message로 떨어진다.
@@ -162,12 +187,31 @@ export function createServer({ repo, token, gitDir, dev = false }) {
         highlightInfo(repo, relPath),
       ])
       const parsed = parseUnifiedDiff(raw)
+
+      // 그림으로 볼 수 있는 파일이면 양쪽 크기를 함께 준다. "이 이미지가 갑자기
+      // 커졌나"는 diff 텍스트로는 절대 보이지 않는 정보다.
+      const info = previewInfo(relPath)
+      let preview = null
+      if (info) {
+        const baselineRef = base ? gitApi.baselineRef() : null
+        const revs = {
+          before: previewRev({ side: 'before', sha, staged, base, untracked, baselineRef }),
+          after: previewRev({ side: 'after', sha, staged, base, untracked, baselineRef }),
+        }
+        const [before, after] = await Promise.all([
+          revs.before === false ? null : gitApi.blobSize(repo, relPath, { rev: revs.before }),
+          revs.after === false ? null : gitApi.blobSize(repo, relPath, { rev: revs.after }),
+        ])
+        preview = { ...info, before, after }
+      }
+
       res.json({
         path: relPath,
         staged,
         untracked,
         sha: sha ?? null,
         base,
+        preview,
         ...highlight,
         ...parsed,
       })
@@ -212,7 +256,62 @@ export function createServer({ repo, token, gitDir, dev = false }) {
         gitApi.fileContent(repo, relPath, { sha }),
         highlightInfo(repo, relPath),
       ])
-      res.json({ path: relPath, sha: sha ?? null, ...highlight, ...content })
+
+      // 이미지를 ⌘P로 열면 "바이너리 파일입니다"가 아니라 그림을 본다
+      const info = previewInfo(relPath)
+      const preview = info
+        ? { ...info, before: null, after: await gitApi.blobSize(repo, relPath, { rev: sha }) }
+        : null
+
+      res.json({ path: relPath, sha: sha ?? null, preview, ...highlight, ...content })
+    }),
+  )
+
+  /**
+   * 미리보기 원본 바이트 (이미지).
+   *
+   * `<img src>`로 불리므로 헤더를 붙일 수 없다 — 토큰은 쿼리(`?t=`)로 받는다.
+   * Content-Type은 확장자 표에서 온 값만 쓰고 `nosniff`를 붙인다. svg는 문서에
+   * 심지 않고 `<img>`로만 그리므로 안의 스크립트가 실행되지 않는다.
+   */
+  app.get(
+    '/api/blob',
+    wrap(async (req, res) => {
+      const relPath = req.query.path
+      safeJoin(repo, relPath)
+
+      const info = previewInfo(relPath)
+      if (!info) {
+        return res.status(415).json({ error: '미리볼 수 없는 형식입니다' })
+      }
+
+      const side = req.query.side === 'before' ? 'before' : 'after'
+      const sha = validSha(req.query.sha)
+      const staged = req.query.staged === '1' || req.query.staged === 'true'
+      const untracked = req.query.untracked === '1' || req.query.untracked === 'true'
+      const base = req.query.base === '1' || req.query.base === 'true'
+      const rev = previewRev({
+        side,
+        sha,
+        staged,
+        base,
+        untracked,
+        baselineRef: base ? gitApi.baselineRef() : null,
+      })
+      if (rev === false) return res.status(404).json({ error: '그 쪽에는 파일이 없습니다' })
+
+      const blob = await gitApi.readBlob(repo, relPath, { rev, maxBytes: MAX_PREVIEW_BYTES })
+      if (!blob) return res.status(404).json({ error: '내용을 찾을 수 없습니다' })
+      if (blob.tooLarge) {
+        return res.status(413).json({ error: '너무 커서 미리보기를 하지 않습니다', size: blob.size })
+      }
+
+      res.set('Content-Type', info.mime)
+      res.set('X-Content-Type-Options', 'nosniff')
+      res.set('Content-Disposition', 'inline')
+      // 워킹트리는 계속 바뀌고, git 객체는 내용이 곧 이름이라 바뀌지 않는다
+      res.set('Cache-Control', rev === null || rev === '' ? 'no-store' : 'max-age=31536000, immutable')
+      res.send(blob.buffer)
     }),
   )
 

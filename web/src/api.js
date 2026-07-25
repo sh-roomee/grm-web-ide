@@ -44,6 +44,25 @@ export const fetchStatus = () => request('/api/status')
 export const fetchRisks = () => request('/api/risks')
 
 /**
+ * 미리보기 이미지 주소.
+ *
+ * `<img src>`는 헤더를 붙일 수 없어 토큰을 쿼리로 보낸다. 어느 쪽(이전/이후)을
+ * 읽을지는 diff를 요청할 때와 같은 파라미터를 그대로 넘겨 서버가 정한다 —
+ * 화면에서 보고 있는 것과 어긋날 수 없다.
+ */
+export function blobUrl(file, side, { sha = null, base = false } = {}) {
+  const params = new URLSearchParams({ path: file.path, side })
+  if (sha) params.set('sha', sha)
+  else if (base) params.set('base', '1')
+  else {
+    if (file.staged) params.set('staged', '1')
+    if (file.untracked) params.set('untracked', '1')
+  }
+  if (token) params.set('t', token)
+  return `/api/blob?${params}`
+}
+
+/**
  * @param file {path, staged?, untracked?}
  * @param opts.sha 커밋 해시. 주면 워킹트리가 아니라 그 커밋 안의 변경을 본다.
  */
