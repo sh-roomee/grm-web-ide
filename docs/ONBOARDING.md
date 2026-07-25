@@ -199,6 +199,7 @@ AI가 고치면 새 변경만 다시 뜬다. 마음에 들면 목록에서 `+`�
 | v0.2 | 커밋 히스토리 — 브랜치 그래프, 커밋 상세, 브랜치·커밋 검색 |
 | v0.3 | 통합 검색(Shift 두 번 · ⌘P · ⌘⇧F · ⌘F), 읽기 전용 파일 뷰어, 문서 탭 |
 | v0.4 | **AI 리뷰 루프** — 기준점, 개별/전체 확인, 코멘트→프롬프트, 위험 신호 |
+| 이후 | UI를 Apple 플랫폼 재료로 재설계, **한 줄 보기(inline diff)** — 터미널 옆 좁은 폭 |
 
 다음은 v0.5 **커밋까지 브라우저에서 끝내기**다 — 커밋 UI와 hunk 단위 stage(`git add -p`
 대체). 자세한 계획은 [ROADMAP](ROADMAP.md).
@@ -211,11 +212,12 @@ AI가 고치면 새 변경만 다시 뜬다. 마음에 들면 목록에서 `+`�
 bin/grmide.js      CLI — 저장소 루트 탐색, 포트 확보, 터미널 요약, 브라우저 실행
 server/            Express. git은 항상 execFile로 인자 배열 전달 (셸 금지)
   git.js           git 명령 래퍼
-  diff.js          unified diff → side-by-side 구조 (순수 함수)
+  diff.js          unified diff → 나란히 보기 행 구조 (순수 함수)
   log.js           git log 파싱 + 그래프 레인 계산 (순수 함수)
   risks.js         위험 신호 판별 (순수 함수)
   state.js         코멘트·확인 표시 저장 + 프롬프트 생성
 web/src/           Vue 3 SFC. 상태 관리 라이브러리 없음 — composables로 충분하다
+  inline.js        나란히 행 → 한 줄 목록 펼치기 (순수 함수)
   highlight/       문법 강조 플러그인 (언어 추가는 여기 파일 하나)
 test/              순수 로직만 테스트. npm test
 ```

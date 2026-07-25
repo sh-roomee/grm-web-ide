@@ -2,6 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 
 import { buildSpans, tokenizeLine, findRanges } from '../highlight/index.js'
+import { flattenInline } from '../inline.js'
 
 const props = defineProps({
   file: { type: Object, default: null },
@@ -116,6 +117,31 @@ function rowComments(row) {
   return out
 }
 
+/**
+ * 한 줄 보기에서 이 줄 아래에 붙일 코멘트.
+ *
+ * 문맥 줄은 오른쪽 번호만 보이지만, 나란히 보기에서 왼쪽 번호에 달아 둔 코멘트가
+ * 있을 수 있다. 보기 방식을 바꿨다고 코멘트가 사라져 보이면 안 되므로 같은
+ * 자리에 함께 보여준다.
+ */
+function lineComments(item) {
+  const out = []
+  if (item.type === 'context' && item.oldNum) {
+    const left = props.commentsFor('left', item.oldNum)
+    if (left) for (const comment of left) out.push({ side: 'left', comment })
+  }
+  const list = item.cell?.num ? props.commentsFor(item.side, item.cell.num) : null
+  if (list) for (const comment of list) out.push({ side: item.side, comment })
+  return out
+}
+
+/** 이 항목(행 또는 줄) 아래에 붙일 코멘트와 입력창 조건. */
+const commentsAt = (item) => (item.kind === 'line' ? lineComments(item) : rowComments(item.row))
+const composingAt = (item) =>
+  item.kind === 'line'
+    ? isComposingAt(item.side, item.cell?.num)
+    : isComposingAt('left', item.row.left?.num) || isComposingAt('right', item.row.right?.num)
+
 const rangeLabel = (comment) =>
   comment.endLine && comment.endLine > comment.line
     ? `${comment.line}–${comment.endLine}행`
@@ -225,23 +251,32 @@ const baseItems = computed(() => {
   return out
 })
 
-/** 토큰 위에 변경 구간과 찾기 결과를 얹어 최종 span을 만든다. */
+/**
+ * 토큰 위에 변경 구간과 찾기 결과를 얹어 최종 span을 만든다.
+ *
+ * 찾기 번호(`data-hit`)는 **화면에 그려지는 순서**를 따라야 한다. 한 줄 보기에서
+ * 문맥 행은 오른쪽 셀만 그리므로, 왼쪽 셀의 매치까지 세면 번호가 어긋나 Enter를
+ * 눌러도 아무 데로도 가지 않는다.
+ */
 const items = computed(() => {
   const query = findTerm.value
+  const inline = inlineOn.value
   let hitIndex = -1
 
   return baseItems.value.map((item) => {
     if (item.kind !== 'row') return item
 
-    const build = (side, tokens) => {
+    const build = (side, tokens, counted = true) => {
       if (!side) return null
-      const hits = query ? findRanges(side.text, query) : null
+      const hits = query && counted ? findRanges(side.text, query) : null
       const first = hits ? ++hitIndex : null // 이 셀의 첫 매치 번호
       if (hits && hits.length > 1) hitIndex += hits.length - 1
       return { spans: buildSpans(side.text, side.words, tokens, hits), hits, first }
     }
 
-    const left = build(item.row.left, item.leftTokens)
+    // 한 줄 보기의 문맥 행은 왼쪽을 그리지 않는다 (양쪽 내용이 같다)
+    const leftShown = !(inline && item.row.type === 'context')
+    const left = build(item.row.left, item.leftTokens, leftShown)
     const right = build(item.row.right, item.rightTokens)
     return { ...item, left, right }
   })
@@ -270,14 +305,16 @@ const hitCount = computed(() => {
  * 일치하고, 실제 이동은 scrollIntoView가 정확히 처리한다.
  */
 const markers = computed(() => {
-  const total = items.value.length
+  const list = renderItems.value
+  const total = list.length
   if (!total) return []
   const out = []
-  items.value.forEach((item, index) => {
-    if (item.kind !== 'row' || item.blockIndex === null) return
+  list.forEach((item, index) => {
+    if (item.blockIndex === null || item.blockIndex === undefined) return
+    if (item.kind !== 'row' && item.kind !== 'line') return
     out.push({
       blockIndex: item.blockIndex,
-      type: item.row.type,
+      type: item.kind === 'line' ? item.type : item.row.type,
       ratio: index / total,
     })
   })
@@ -306,6 +343,40 @@ function goto(delta) {
   if (blockCount.value === 0) return
   scrollToBlock((cursor.value + delta + blockCount.value) % blockCount.value)
 }
+
+/**
+ * 나란히(split) / 한 줄로(inline).
+ *
+ * 이 도구의 전제가 "터미널 옆에 브라우저"라서 폭이 700~800px인 경우가 많다.
+ * 그 폭에서 side-by-side는 양쪽이 다 잘려 읽을 수 없다. 그래서 좁으면 한 줄로
+ * 보여주고, 고른 값은 기억한다.
+ *
+ * 처음 열 때만 폭으로 정한다 — 사용자가 한 번 고르면 그 뜻을 존중한다.
+ */
+const LAYOUT_KEY = 'grmide:diffLayout'
+const NARROW_PX = 1100
+
+const storedLayout = localStorage.getItem(LAYOUT_KEY)
+/** 파일 하나를 읽는 모드는 이미 한 컬럼이라 이 토글이 없다. */
+const inlineOn = computed(() => layout.value === 'inline' && !props.single)
+const layout = ref(
+  storedLayout === 'inline' || storedLayout === 'split'
+    ? storedLayout
+    : window.innerWidth < NARROW_PX
+      ? 'inline'
+      : 'split',
+)
+
+function setLayout(value) {
+  layout.value = value
+  localStorage.setItem(LAYOUT_KEY, value)
+}
+
+/** 화면에 그리는 목록. 마커·찾기 번호도 이걸 기준으로 센다. */
+const renderItems = computed(() => (inlineOn.value ? inlineItems.value : items.value))
+
+/** 한 줄 보기 목록. 펼치는 규칙은 `inline.js`에 있고 테스트로 고정해 두었다. */
+const inlineItems = computed(() => (inlineOn.value ? flattenInline(items.value) : []))
 
 // git -U 에 안전하게 넘길 수 있는 크기. 어떤 파일이든 전체가 한 훅으로 온다.
 const FULL_CONTEXT = 100000
@@ -359,6 +430,20 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
             기준점 대비
           </button>
         </div>
+
+        <!--
+          보기 방식은 둘 중 하나라 토글 하나로 둔다. 세그먼트로 두 칸을 쓰면
+          이 기능이 필요한 좁은 폭에서 바가 먼저 넘친다.
+        -->
+        <button
+          v-if="!single"
+          class="ctl"
+          :class="{ on: layout === 'inline' }"
+          title="한 줄로 보기 — 터미널 옆에 좁게 띄웠을 때. 끄면 좌우로 나란히"
+          @click="setLayout(layout === 'inline' ? 'split' : 'inline')"
+        >
+          한 줄로
+        </button>
 
         <div v-if="!single" class="modes" role="group" aria-label="보기 범위">
           <button
@@ -434,7 +519,7 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
       <div
         ref="scroller"
         class="scroll"
-        :class="[{ wrap }, selectSide && `sel-${selectSide}`]"
+        :class="[{ wrap }, inlineOn ? 'inline' : 'split', selectSide && `sel-${selectSide}`]"
         @mouseup="gutterUp()"
         @mouseleave="dragging = null"
       >
@@ -447,13 +532,49 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
         <p v-else-if="!diff?.hunks.length" class="notice">표시할 변경사항이 없습니다.</p>
 
         <template v-else>
-          <template v-for="item in items" :key="item.key">
+          <template v-for="item in renderItems" :key="item.key">
             <div v-if="item.kind === 'hunk' && single" />
             <div v-else-if="item.kind === 'hunk'" class="hunk">
               @@ -{{ item.hunk.oldStart }},{{ item.hunk.oldLines }} +{{ item.hunk.newStart }},{{
                 item.hunk.newLines
               }} @@
               <span v-if="item.hunk.header" class="hunk-ctx">{{ item.hunk.header }}</span>
+            </div>
+
+            <!--
+              한 줄 보기. 번호 컬럼은 하나다 — 부호가 가리키는 쪽의 번호를 쓴다
+              (`−`는 HEAD 쪽 번호, `+`와 문맥은 지금 파일의 번호). 좁은 폭을
+              벌기 위한 선택이고, 코멘트도 그 한 쪽에 달린다.
+            -->
+            <div
+              v-else-if="item.kind === 'line'"
+              class="iline"
+              :class="`t-${item.type}`"
+              :data-block="item.blockIndex ?? undefined"
+            >
+              <span
+                class="gutter"
+                :class="{
+                  clickable: item.cell?.num,
+                  picked: inPicked(item.side, item.cell?.num),
+                }"
+                title="코멘트 — 클릭하거나 여러 줄을 끌어서 고른다"
+                @mousedown="gutterDown(item.side, item.cell, $event)"
+                @mouseenter="gutterEnter(item.side, item.cell)"
+                >{{ item.cell?.num ?? '' }}</span
+              >
+              <span class="sign">{{ item.sign }}</span>
+              <span
+                class="code"
+                :class="{ picked: inPicked(item.side, item.cell?.num) }"
+                :data-hit="item.hit ?? undefined"
+                ><span
+                  v-for="(span, i) in item.spans"
+                  :key="i"
+                  :class="[span.cls && `tk-${span.cls}`, { word: span.changed, hit: span.hit }]"
+                  >{{ span.text }}</span
+                ></span
+              >
             </div>
 
             <div
@@ -514,13 +635,9 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
               >
             </div>
 
-            <!-- 이 줄에 달린 코멘트 -->
-            <template v-if="item.kind === 'row'">
-              <div
-                v-for="entry in rowComments(item.row)"
-                :key="entry.comment.id"
-                class="comment"
-              >
+            <!-- 이 줄에 달린 코멘트 (두 보기 방식이 같은 마크업을 쓴다) -->
+            <template v-if="item.kind === 'row' || item.kind === 'line'">
+              <div v-for="entry in commentsAt(item)" :key="entry.comment.id" class="comment">
                 <span class="comment-where">
                   {{ rangeLabel(entry.comment) }}{{ entry.side === 'left' ? ' · 삭제된 쪽' : '' }}
                 </span>
@@ -535,13 +652,7 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
               </div>
 
               <!-- 코멘트 입력 -->
-              <div
-                v-if="
-                  isComposingAt('left', item.row.left?.num) ||
-                  isComposingAt('right', item.row.right?.num)
-                "
-                class="comment compose"
-              >
+              <div v-if="composingAt(item)" class="comment compose">
                 <textarea
                   class="comment-input"
                   :placeholder="`${composing.from === composing.to ? `${composing.from}행` : `${composing.from}–${composing.to}행`}에 코멘트 — ⌘Enter 저장, Esc 취소`"
@@ -573,6 +684,24 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
   flex-direction: column;
   height: 100%;
   min-width: 0;
+  container-type: inline-size;
+}
+
+/**
+ * 좁아지면 바에서 덜 중요한 것부터 접는다.
+ *
+ * 파일 경로와 `찾기`는 남기고 개수 표시(`N differences`)를 먼저 버린다 — 개수는
+ * 알아서 좋은 정보지만, 경로를 잃거나 찾기 버튼이 화면 밖으로 밀리면 못 쓴다.
+ */
+@container (max-width: 700px) {
+  .summary {
+    display: none;
+  }
+}
+@container (max-width: 560px) {
+  .badge {
+    display: none;
+  }
 }
 
 /* 파일 도구 바. 내비게이션 바와 같은 재료를 쓰되 흐림은 걸지 않는다 */
@@ -794,6 +923,48 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
   grid-template-columns: 52px minmax(0, 1fr);
 }
 
+/**
+ * 한 줄 보기. 번호 하나 + 부호 하나 + 코드.
+ *
+ * 나란히 보기는 번호·코드가 두 벌이라 폭 100px 이상을 껍데기에 쓴다. 여기서는
+ * 60px이면 되고, 남는 폭이 그대로 코드가 된다 — 좁게 띄웠을 때의 요점이다.
+ */
+.iline {
+  display: grid;
+  grid-template-columns: 46px 14px minmax(0, 1fr);
+}
+.sign {
+  text-align: center;
+  user-select: none;
+  color: var(--fg-faint);
+  font-size: 11px;
+}
+
+.iline.t-del .code,
+.iline.t-del .sign,
+.iline.t-del .gutter {
+  background: var(--diff-del-bg);
+}
+.iline.t-add .code,
+.iline.t-add .sign,
+.iline.t-add .gutter {
+  background: var(--diff-add-bg);
+}
+.iline.t-del .sign {
+  color: var(--diff-del-line);
+}
+.iline.t-add .sign {
+  color: var(--diff-add-line);
+}
+.iline.t-del .word {
+  background: var(--diff-del-word);
+  box-shadow: inset 0 -1.5px 0 var(--diff-del-line);
+}
+.iline.t-add .word {
+  background: var(--diff-add-word);
+  box-shadow: inset 0 -1.5px 0 var(--diff-add-line);
+}
+
 .gutter {
   padding: 0 8px 0 4px;
   text-align: right;
@@ -826,8 +997,8 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
  * 반대쪽 셀에 user-select: none을 주면 브라우저가 선택을 확장할 때 그 셀들을
  * 건너뛴다. 이러면 화면에서도 한쪽만 칠해지고, 복사해도 좌우가 섞이지 않는다.
  */
-.scroll.sel-left .code.side-right,
-.scroll.sel-right .code.side-left {
+.scroll.split.sel-left .code.side-right,
+.scroll.split.sel-right .code.side-left {
   user-select: none;
 }
 
