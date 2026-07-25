@@ -9,6 +9,7 @@ import TabBar from './components/TabBar.vue'
 import { useReview } from './composables/useReview.js'
 import { useHistory } from './composables/useHistory.js'
 import { useTabs } from './composables/useTabs.js'
+import { useComments } from './composables/useComments.js'
 import * as api from './api.js'
 
 const repo = ref(null)
@@ -41,6 +42,31 @@ const history = useHistory()
 const commitFile = ref(null) // 히스토리 화면에서 고른 파일
 const diffViewer = ref(null) // ⌘F를 넘겨주기 위한 참조
 const tabs = useTabs()
+const comments = useComments()
+const copied = ref(false)
+
+/** 지금 보고 있는 파일의 줄별 코멘트. DiffViewer가 줄마다 물어본다. */
+function commentsForActive(side, line) {
+  const tab = tabs.active.value
+  if (!tab) return null
+  return comments.forLine(tab.path, side, line)
+}
+
+async function addComment(draft) {
+  const tab = tabs.active.value
+  if (!tab) return
+  await comments.add({
+    ...draft,
+    path: tab.path,
+    sha: tab.kind === 'commit' ? tab.sha : null,
+  })
+}
+
+async function copyPrompt() {
+  const ok = await comments.copyPrompt()
+  copied.value = ok
+  if (ok) setTimeout(() => (copied.value = false), 1600)
+}
 
 // 히스토리 탭을 처음 열 때만 로그와 브랜치 목록을 받는다
 watch(view, async (next) => {
@@ -334,7 +360,7 @@ let stream = null
 
 onMounted(async () => {
   if (!api.token) {
-    fatal.value = '토큰이 없습니다. 터미널에서 gitshow가 출력한 주소로 다시 접속하세요.'
+    fatal.value = '토큰이 없습니다. 터미널에서 grmide가 출력한 주소로 다시 접속하세요.'
     return
   }
   try {
@@ -345,6 +371,7 @@ onMounted(async () => {
   }
   await loadStatus()
   await loadActive()
+  await comments.load()
 
   // 파일이 바뀌면 서버가 알려준다. 폴링이 아니라 이 스트림이 갱신의 기준이다.
   stream = api.subscribeChanges({
@@ -369,7 +396,7 @@ onUnmounted(() => {
   window.removeEventListener('keydown', onKey)
 })
 
-/** 끊긴 뒤 gitshow를 다시 켰을 때. 스트림과 화면 내용을 함께 되살린다. */
+/** 끊긴 뒤 grmide를 다시 켰을 때. 스트림과 화면 내용을 함께 되살린다. */
 async function reconnect() {
   stream?.reconnect()
   tabs.markStale()
@@ -507,6 +534,19 @@ function onKey(event) {
       </span>
       <span class="spacer" />
 
+      <!-- 코멘트를 AI에게 넘기는 경로 -->
+      <template v-if="comments.comments.value.length">
+        <button
+          class="copy-btn"
+          :class="{ done: copied }"
+          title="코멘트를 프롬프트로 만들어 클립보드에 담는다. 터미널에 붙여넣으면 된다"
+          @click="copyPrompt()"
+        >
+          {{ copied ? '✓ 복사됨' : `코멘트 ${comments.comments.value.length} · 프롬프트 복사` }}
+        </button>
+        <button class="drop-btn" title="코멘트 모두 지우기" @click="comments.clear()">✕</button>
+      </template>
+
       <!-- 기준점: AI가 계속 고치는 동안 "새로 바뀐 것"만 가려낸다 -->
       <template v-if="view === 'changes'">
         <button
@@ -539,7 +579,7 @@ function onKey(event) {
 
         <span class="progress">확인 {{ progress.done }}/{{ progress.total }}</span>
       </template>
-      <span v-if="!connected" class="offline" title="gitshow가 실행 중인지 확인하세요">
+      <span v-if="!connected" class="offline" title="grmide가 실행 중인지 확인하세요">
         {{ retrying ? '연결 끊김 · 다시 시도 중' : '연결 끊김 · 아래 내용은 지금 상태가 아닙니다' }}
         <button v-if="!retrying" class="relink" @click="reconnect">다시 연결</button>
       </span>
@@ -637,8 +677,11 @@ function onKey(event) {
           "
           :can-compare-base="Boolean(baseline) && tabs.active.value.kind === 'worktree'"
           :compare-base="compareBase"
+          :comments-for="commentsForActive"
           @update:context="context = $event"
           @update:compare-base="compareBase = $event"
+          @comment="addComment($event)"
+          @delete-comment="comments.remove($event)"
         >
           <template #actions>
             <!-- Cursor처럼 보고 있는 파일을 하나씩 확인해 넘긴다 -->
@@ -764,6 +807,27 @@ function onKey(event) {
 }
 .drop-btn:hover {
   color: var(--fg);
+}
+
+/* 코멘트를 프롬프트로 복사 */
+.copy-btn {
+  flex: none;
+  padding: 1px 9px;
+  background: #2f5c34;
+  color: #cfe8c4;
+  border: 1px solid #3f7a46;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.copy-btn:hover {
+  background: #3f7a46;
+  color: #fff;
+}
+.copy-btn.done {
+  background: #3f7a46;
+  color: #fff;
 }
 
 /* diff 바 안의 개별 확인 */

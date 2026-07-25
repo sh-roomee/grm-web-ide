@@ -11,10 +11,10 @@ const DEFAULT_PORT = 4317
 const PORT_TRIES = 20
 const HOST = '127.0.0.1' // 로컬 전용. 저장소 내용을 노출하므로 외부 바인딩은 지원하지 않는다.
 
-const HELP = `gitshow - 현재 디렉토리의 git 변경사항을 브라우저에서 본다
+const HELP = `grmide - 터미널에서 AI로 개발할 때 쓰는 브라우저 IDE (읽기 전용)
 
 사용법:
-  gitshow [경로] [옵션]
+  grmide [경로] [옵션]
 
 옵션:
   -p, --port <번호>   시작 포트 (기본 ${DEFAULT_PORT}, 사용 중이면 다음 포트로)
@@ -77,8 +77,8 @@ async function main() {
     process.exit(1)
   }
 
-  const dev = process.env.GITSHOW_DEV === '1'
-  const token = process.env.GITSHOW_TOKEN || crypto.randomBytes(16).toString('hex')
+  const dev = process.env.GRMIDE_DEV === '1'
+  const token = process.env.GRMIDE_TOKEN || crypto.randomBytes(16).toString('hex')
   const gitDir = await resolveGitDir(repo)
   const { app, close } = createServer({ repo, token, gitDir, dev })
   const server = await listen(app, opts.port, PORT_TRIES)
@@ -95,7 +95,7 @@ async function main() {
     ])
     console.log(renderSummary({ repo, branch, head, status: changes, url, dev, token }))
   } catch (err) {
-    console.log(`gitshow  ${repo}`)
+    console.log(`grmide  ${repo}`)
     console.log(`         ${url}`)
     console.log(`         (요약을 만들지 못했습니다: ${err.message})`)
   }

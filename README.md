@@ -1,17 +1,20 @@
-# gitshow (grm-web-ide)
+# grmide (grm-web-ide)
 
-터미널에서 AI로 개발하다가 **git 변경사항을 보려고 IDE를 켜는 일**을 없애기 위한
-브라우저 git 뷰어.
+터미널에서 AI로 개발할 때 쓰는 **브라우저 IDE**. 편집은 없고 읽기만 있다.
 
 ```bash
 cd ~/work/my-project
-gitshow
+grmide
 ```
 
-브라우저가 열리고, 현재 디렉토리의 변경된 파일 목록과 side-by-side diff가 뜬다.
-AI가 파일을 고치면 브라우저가 스스로 따라온다.
+브라우저가 열리고 현재 디렉토리의 변경사항이 뜬다. AI가 파일을 고치면 브라우저가
+스스로 따라온다.
 
-![gitshow 기본 화면 — 변경 파일 목록과 side-by-side diff](docs/images/changes-view.jpg)
+git 뷰어로 시작했지만 지금은 그보다 넓다 — 코드를 읽고(⌘P·⌘⇧F), 히스토리를 보고,
+AI가 방금 무엇을 바꿨는지 가려내고, 리뷰 코멘트를 AI에게 넘기는 일까지 한다.
+그래서 이름이 `gitshow`에서 `grmide`로 바뀌었다.
+
+![grmide 기본 화면 — 변경 파일 목록과 side-by-side diff](docs/images/changes-view.jpg)
 
 **IDE를 켜는 이유를 없애는 것**이 목표다. 그래서 기준선은 "편집이 없는 읽기 전용
 IDE"다 — 코드를 읽고 찾는 일은 넓게 허용하고, 쓰기는 stage/commit까지만 한다.
@@ -53,13 +56,13 @@ cd grm-web-ide
 
 npm install
 npm run build      # 프론트엔드 빌드 (web/dist)
-npm link           # gitshow 명령을 전역에 등록
+npm link           # grmide 명령을 전역에 등록
 ```
 
 `npm link` 없이 직접 실행해도 된다:
 
 ```bash
-node /path/to/grm-web-ide/bin/gitshow.js
+node /path/to/grm-web-ide/bin/grmide.js
 ```
 
 > nvm으로 노드 버전을 바꾸면 `npm link`는 그 버전의 `bin`에만 등록되어 있다.
@@ -68,7 +71,7 @@ node /path/to/grm-web-ide/bin/gitshow.js
 ## 사용법
 
 ```
-gitshow [경로] [옵션]
+grmide [경로] [옵션]
 
   -p, --port <번호>   시작 포트 (기본 4317, 사용 중이면 다음 포트로)
       --no-open       브라우저를 자동으로 열지 않는다
@@ -82,8 +85,8 @@ gitshow [경로] [옵션]
 
 ```
 $ cd ~/work/my-project/src/components
-$ gitshow
-gitshow  my-project  ⎇ main
+$ grmide
+grmide  my-project  ⎇ main
 경로    /Users/me/work/my-project
 HEAD    58f27b2 add locales and noiseCancel lib · 7 minutes ago
 변경    4개 파일  +20 -11
@@ -105,7 +108,7 @@ HEAD    58f27b2 add locales and noiseCancel lib · 7 minutes ago
 색은 터미널일 때만 넣는다. 파이프로 넘기거나 `NO_COLOR`가 설정되어 있으면 평문이다.
 
 여러 저장소를 동시에 볼 수 있다. 포트가 이미 쓰이고 있으면 다음 번호로 넘어가므로
-그냥 각 디렉토리에서 `gitshow`를 치면 된다.
+그냥 각 디렉토리에서 `grmide`를 치면 된다.
 
 끝낼 때는 터미널에서 `Ctrl-C`. 브라우저 탭은 열어둔 채로도 종료된다.
 
@@ -244,7 +247,7 @@ AI가 20분 동안 계속 고치는 동안 `git diff`는 매번 전체를 다시
 40개 파일과 새로 바뀐 3개가 구분되지 않는다. git에는 `HEAD`와 index만 있고
 **"내가 마지막으로 확인한 시점"이라는 개념이 없기** 때문이다.
 
-gitshow는 그 시점을 만든다. 상단 `전체 확인`을 누르면 지금 워킹트리를 트리 객체로
+grmide는 그 시점을 만든다. 상단 `전체 확인`을 누르면 지금 워킹트리를 트리 객체로
 굳혀 기준점으로 잡는다. 그 뒤로는:
 
 | 표시 | 뜻 |
@@ -256,7 +259,7 @@ gitshow는 그 시점을 만든다. 상단 `전체 확인`을 누르면 지금 �
 위 스크린샷이 그 상태다. `line2 changed again`은 이미 확인했으므로 회색 컨텍스트로
 내려가고, 새로 바뀐 `line1`만 변경으로 표시된다. `HEAD 대비`로 바꾸면 둘 다 보인다.
 
-기준점은 `refs/gitshow/baseline`에 매달아 두므로 gitshow를 다시 켜도 유지되고,
+기준점은 `refs/grmide/baseline`에 매달아 두므로 grmide를 다시 켜도 유지되고,
 `git gc`에도 사라지지 않는다. 사용자의 index나 커밋 히스토리는 건드리지 않는다.
 
 ### 확인 — 파일 하나씩 넘기기
@@ -270,12 +273,48 @@ gitshow는 그 시점을 만든다. 상단 `전체 확인`을 누르면 지금 �
 - 그룹 헤더의 `그룹 확인`은 그 그룹을 한 번에 표시한다.
 - 상단 `전체 확인`은 모두 확인 처리하고 기준점을 새로 잡는다.
 
+### 코멘트 — 리뷰를 AI에게 넘기기
+
+![라인 코멘트와 프롬프트 복사](docs/images/comments-view.jpg)
+
+지금까지 리뷰는 이렇게 끊겼다: 브라우저에서 diff를 보고 → 머릿속에 기억 →
+터미널로 가서 **경로와 줄 번호를 다시 타이핑.**
+
+**줄 번호를 클릭하면** 그 줄에 코멘트를 달 수 있다(`⌘Enter` 저장, `Esc` 취소).
+삭제된 쪽(왼쪽)에도 달 수 있어서 "이 줄은 왜 지웠어?"를 물을 수 있다.
+
+상단 **`코멘트 N · 프롬프트 복사`** 를 누르면 이런 형태로 클립보드에 담긴다:
+
+````
+아래 리뷰 코멘트를 반영해줘.
+
+## a.txt
+
+### a.txt:1
+```text
+line1
+```
+이 줄은 왜 지웠어?
+
+### a.txt:2
+```text
+line2 changed again
+```
+v3로 바꾼 이유가 뭐야?
+````
+
+터미널에 붙여넣기만 하면 된다. 경로·줄 번호·**그때 본 코드**가 함께 들어가므로
+AI가 위치를 정확히 찾는다.
+
+코멘트는 `<git-dir>/grmide-state.json`에 저장되어 새로고침과 grmide 재시작에도
+남는다. 워킹트리에 파일을 만들지 않으므로 변경 목록을 오염시키지 않는다.
+
 ### 실시간 갱신
 
 파일이 바뀌면 서버가 브라우저에 알린다(SSE). 창에 포커스를 줄 필요도, 새로
 고칠 필요도 없다. 터미널에서 `git add` 한 것도 즉시 반영된다.
 
-gitshow를 끄면 상단에 **"연결 끊김"** 이 뜬다. 서버가 죽었는데 옛 내용이 그대로
+grmide를 끄면 상단에 **"연결 끊김"** 이 뜬다. 서버가 죽었는데 옛 내용이 그대로
 보이면 지금 상태로 착각하기 때문이다. 다시 켠 뒤 **"다시 연결"** 을 누르면 이어진다.
 
 ### stage / unstage
@@ -317,7 +356,7 @@ npm run build   # 배포용 프론트엔드 빌드
 서버와 프론트를 따로 띄운다:
 
 ```bash
-GITSHOW_DEV=1 node bin/gitshow.js ~/work/other-project --no-open --port 4317
+GRMIDE_DEV=1 node bin/grmide.js ~/work/other-project --no-open --port 4317
 npm run dev:web
 ```
 

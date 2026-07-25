@@ -1,11 +1,11 @@
 /**
  * 서버 통신 계층.
  *
- * 토큰은 gitshow가 열어준 URL의 ?t= 로 전달된다. 주소창에 토큰이 남아 있으면
+ * 토큰은 grmide가 열어준 URL의 ?t= 로 전달된다. 주소창에 토큰이 남아 있으면
  * 복사/공유 사고가 나므로 즉시 sessionStorage로 옮기고 URL에서 지운다.
  */
 
-const TOKEN_KEY = 'gitshow:token'
+const TOKEN_KEY = 'grmide:token'
 
 function readToken() {
   const url = new URL(window.location.href)
@@ -25,7 +25,7 @@ async function request(path, options = {}) {
   const res = await fetch(path, {
     ...options,
     headers: {
-      'x-gitshow-token': token,
+      'x-grmide-token': token,
       ...(options.body ? { 'Content-Type': 'application/json' } : {}),
       ...options.headers,
     },
@@ -58,6 +58,20 @@ export function fetchDiff(file, { context = 3, sha = null, base = false } = {}) 
 // 기준점 — "여기까지 봤다"
 export const setBaseline = () => request('/api/baseline', { method: 'POST', body: '{}' })
 export const clearBaseline = () => request('/api/baseline', { method: 'DELETE' })
+
+// 리뷰 코멘트 — 사람의 판단을 AI에게 되돌리는 경로
+export const fetchComments = () => request('/api/comments')
+
+export const addComment = (comment) =>
+  request('/api/comments', { method: 'POST', body: JSON.stringify(comment) })
+
+export const editComment = (id, text) =>
+  request('/api/comments', { method: 'PATCH', body: JSON.stringify({ id, text }) })
+
+export const deleteComment = (id) =>
+  request(`/api/comments?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+
+export const clearComments = () => request('/api/comments?all=1', { method: 'DELETE' })
 
 export function fetchLog({ limit = 100, skip = 0, ref = null, q = '', in: searchIn = 'message' } = {}) {
   const params = new URLSearchParams({ limit: String(limit), skip: String(skip) })
@@ -96,12 +110,12 @@ const MAX_RECONNECT_ATTEMPTS = 5
 /**
  * 워킹트리 변경 알림 스트림. EventSource는 헤더를 못 붙여 토큰을 쿼리로 넘긴다.
  *
- * 재접속을 EventSource의 자동 재접속에 맡기지 않고 직접 돌린다. gitshow를 끈
+ * 재접속을 EventSource의 자동 재접속에 맡기지 않고 직접 돌린다. grmide를 끈
  * 뒤(포트가 닫힌 뒤) 브라우저가 재접속을 반복하면서 페이지가 먹통이 되는 것을
  * 실제로 겪었다. 그래서 error가 나면 즉시 닫고, 우리가 정한 간격으로 몇 번만
  * 다시 시도하고 포기한다. 그 뒤에는 사용자가 직접 `reconnect()`를 호출한다.
  *
- * `onConnection`으로 접속 상태를 알린다. gitshow를 끈 뒤에도 화면에는 옛 내용이
+ * `onConnection`으로 접속 상태를 알린다. grmide를 끈 뒤에도 화면에는 옛 내용이
  * 남아 있어서, 끊긴 사실을 알려주지 않으면 지금 상태로 착각한다.
  */
 export function subscribeChanges({ onChange, onConnection }) {

@@ -11,7 +11,7 @@ import { ref, watch } from 'vue'
 export function useReview(repoRoot) {
   const marks = ref({})
 
-  const storageKey = () => (repoRoot.value ? `gitshow:reviewed:${repoRoot.value}` : null)
+  const storageKey = () => (repoRoot.value ? `grmide:reviewed:${repoRoot.value}` : null)
 
   watch(
     repoRoot,

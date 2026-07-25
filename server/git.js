@@ -335,7 +335,9 @@ export async function commitFileDiff(repo, sha, path, { context = 3 } = {}) {
 // "기준점 트리 vs 지금 워킹트리"를 비교하면 새로 바뀐 것만 나온다.
 // ---------------------------------------------------------------------------
 
-const BASELINE_REF = 'refs/gitshow/baseline'
+const BASELINE_REF = 'refs/grmide/baseline'
+// 명령 이름이 gitshow였을 때 쓰던 ref. 기준점을 잃지 않도록 한 번 옮겨 온다.
+const LEGACY_BASELINE_REF = 'refs/gitshow/baseline'
 
 /**
  * 워킹트리 전체를 트리 객체로 만든다.
@@ -347,7 +349,7 @@ const BASELINE_REF = 'refs/gitshow/baseline'
  * `git add -A`라서 untracked 파일도 담기고 `.gitignore`는 지켜진다.
  */
 async function currentTree(repo, gitDir) {
-  const env = { GIT_INDEX_FILE: path.join(gitDir, 'gitshow-index') }
+  const env = { GIT_INDEX_FILE: path.join(gitDir, 'grmide-index') }
   await git(repo, ['add', '-A'], { env })
   return (await git(repo, ['write-tree'], { env })).trim()
 }
@@ -367,7 +369,16 @@ export async function getBaseline(repo) {
   const out = await git(repo, ['rev-parse', '--verify', '--quiet', BASELINE_REF], {
     allowFail: true,
   })
-  return out.trim() || null
+  if (out.trim()) return out.trim()
+
+  // 옛 이름(gitshow)으로 잡아 둔 기준점이 있으면 옮겨 온다
+  const legacy = (
+    await git(repo, ['rev-parse', '--verify', '--quiet', LEGACY_BASELINE_REF], { allowFail: true })
+  ).trim()
+  if (!legacy) return null
+  await git(repo, ['update-ref', BASELINE_REF, legacy], { allowFail: true })
+  await git(repo, ['update-ref', '-d', LEGACY_BASELINE_REF], { allowFail: true })
+  return legacy
 }
 
 export async function clearBaseline(repo) {

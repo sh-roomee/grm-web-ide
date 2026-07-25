@@ -5,7 +5,7 @@
 ## 인증
 
 ```
-x-gitshow-token: <토큰>
+x-grmide-token: <토큰>
 ```
 
 헤더를 붙일 수 없는 `EventSource`만 쿼리 파라미터를 허용한다: `?t=<토큰>`
@@ -256,20 +256,74 @@ ASCII 그림 대신 숫자로 내보내고, 그림은 클라이언트가 SVG로 
 { "tree": "32ba7d6e7758839e71cac492b336477e264c1521" }
 ```
 
-지금 워킹트리를 트리 객체로 굳혀 `refs/gitshow/baseline`에 매단다.
+지금 워킹트리를 트리 객체로 굳혀 `refs/grmide/baseline`에 매단다.
 
-- 사용자 index를 건드리지 않기 위해 별도 index 파일(`.git/gitshow-index`)로
+- 사용자 index를 건드리지 않기 위해 별도 index 파일(`.git/grmide-index`)로
   `git add -A` → `git write-tree` 한다. 그 파일을 재사용하는 이유는 git의 stat
   캐시다 — 빈 index로 시작하면 저장소 전체를 다시 해시한다.
-- ref에 매달아 두므로 `git gc`에도 살아남고 gitshow를 다시 켜도 유지된다.
-- `refs/gitshow/*`는 `--all`에 포함되지 않아 히스토리 그래프를 오염시키지 않는다.
+- ref에 매달아 두므로 `git gc`에도 살아남고 grmide를 다시 켜도 유지된다.
+- `refs/grmide/*`는 `--all`에 포함되지 않아 히스토리 그래프를 오염시키지 않는다.
+
+## 리뷰 코멘트
+
+사람의 판단을 AI에게 되돌리는 경로. 저장 위치는 `<git-dir>/grmide-state.json`이다.
+
+**왜 워킹트리가 아니라 `.git` 안인가**: 워킹트리에 파일을 만들면 grmide 자신의
+변경 목록에 떠서 리뷰를 방해하고 커밋 대상이 된다. 저장소마다 따로 남아야 하고,
+감시자가 `.git`을 보지 않으므로 저장할 때 화면이 새로고침되지도 않는다.
+브라우저 localStorage를 쓰지 않는 이유는 포트가 바뀌면(4317이 사용 중이면 4318로
+뜬다) 다른 origin이 되어 내용을 잃기 때문이다.
+
+### GET /api/comments
+
+```json
+{
+  "comments": [
+    {
+      "id": "cms0anuc00hfd",
+      "path": "web/src/App.vue",
+      "line": 214,
+      "side": "right",
+      "code": "    if (line) await nextTick(() => scrollToLine(line))",
+      "text": "이 nextTick 왜 필요해?",
+      "sha": null,
+      "createdAt": "2026-07-25T11:37:04.080Z"
+    }
+  ],
+  "prompt": "아래 리뷰 코멘트를 반영해줘.\n\n## web/src/App.vue\n…"
+}
+```
+
+- `side`는 `left`(삭제된 쪽) / `right`(현재 쪽)
+- `code`는 **코멘트를 쓸 때 본 그 줄의 내용**이다. 나중에 프롬프트를 만들 때
+  파일을 다시 읽지 않아도 되고, 그 사이 파일이 바뀌어도 무엇을 보고 쓴 코멘트인지
+  남는다
+- `sha`는 커밋 diff에 단 코멘트일 때만 채워진다
+- `prompt`는 붙여넣기 가능한 형태로 서버가 만들어 준다 (파일별로 묶고 줄 번호 순,
+  확장자에 맞는 코드 펜스)
+
+### POST /api/comments
+
+```json
+{ "path": "web/src/App.vue", "line": 214, "side": "right", "code": "…", "text": "…" }
+```
+
+`text`가 비어 있으면 400. 500개를 넘으면 오래된 것부터 버린다.
+
+### PATCH /api/comments
+
+`{ "id": "...", "text": "..." }` — 없는 id면 404.
+
+### DELETE /api/comments
+
+`?id=<id>` 로 하나 삭제, `?all=1` 로 전부 삭제.
 
 ## GET /api/files
 
 ⌘P(파일 열기)용 목록. 파라미터 없음.
 
 ```json
-{ "files": ["README.md", "bin/gitshow.js", "server/git.js"] }
+{ "files": ["README.md", "bin/grmide.js", "server/git.js"] }
 ```
 
 `git ls-files -co --exclude-standard` — 추적 중인 파일 + untracked 파일이고
@@ -317,7 +371,7 @@ ASCII 그림 대신 숫자로 내보내고, 그림은 클라이언트가 SVG로 
 {
   "query": "renderSummary",
   "hits": [
-    { "path": "bin/gitshow.js", "line": 8, "text": "import { renderSummary } from './summary.js'" }
+    { "path": "bin/grmide.js", "line": 8, "text": "import { renderSummary } from './summary.js'" }
   ],
   "truncated": false
 }
@@ -403,7 +457,7 @@ data: {}
 25초마다 `: ping` 주석을 보내 연결을 유지한다.
 
 `retry: 3000`을 내려보내지만 클라이언트는 이 값에 의존하지 않는다. 브라우저의
-자동 재접속에 맡기면 gitshow를 끈 뒤 페이지가 먹통이 되므로, 직접 재접속을
+자동 재접속에 맡기면 grmide를 끈 뒤 페이지가 먹통이 되므로, 직접 재접속을
 돌린다 (1·2·4·8·16초, 다섯 번 후 포기).
 [ARCHITECTURE](ARCHITECTURE.md#재접속은-브라우저에-맡기지-않는다) 참고.
 

@@ -6,6 +6,14 @@ import express from 'express'
 import * as gitApi from './git.js'
 import { parseUnifiedDiff } from './diff.js'
 import { highlightInfo } from './language.js'
+import {
+  readState,
+  addComment,
+  updateComment,
+  removeComment,
+  clearComments,
+  buildPrompt,
+} from './state.js'
 import { createWatcher } from './watcher.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -61,7 +69,7 @@ export function createServer({ repo, token, gitDir, dev = false }) {
 
   // --- 인증: 로컬 바인딩이지만 같은 머신의 다른 프로세스/사이트가 붙는 것을 막는다.
   app.use('/api', (req, res, next) => {
-    const provided = req.get('x-gitshow-token') || req.query.t
+    const provided = req.get('x-grmide-token') || req.query.t
     if (provided !== token) return res.status(401).json({ error: '토큰이 유효하지 않습니다' })
     next()
   })
@@ -69,7 +77,7 @@ export function createServer({ repo, token, gitDir, dev = false }) {
   const wrap = (handler) => (req, res) => {
     Promise.resolve(handler(req, res)).catch((err) => {
       const status = err.status ?? 500
-      if (status >= 500) console.error('[gitshow]', err)
+      if (status >= 500) console.error('[grmide]', err)
       res.status(status).json({ error: err.message })
     })
   }
@@ -93,7 +101,7 @@ export function createServer({ repo, token, gitDir, dev = false }) {
         try {
           fresh = await gitApi.changedSinceBaseline(repo, gitDir, baseline)
         } catch (err) {
-          console.error('[gitshow] 기준점 비교 실패:', err.message)
+          console.error('[grmide] 기준점 비교 실패:', err.message)
         }
       }
 
@@ -206,6 +214,61 @@ export function createServer({ repo, token, gitDir, dev = false }) {
     }),
   )
 
+  // --- 리뷰 코멘트: 사람의 판단을 AI에게 되돌리는 경로
+  app.get(
+    '/api/comments',
+    wrap(async (_req, res) => {
+      const state = await readState(gitDir)
+      res.json({ comments: state.comments, prompt: buildPrompt(state.comments) })
+    }),
+  )
+
+  app.post(
+    '/api/comments',
+    wrap(async (req, res) => {
+      const { path: relPath, line, side, code, text, sha } = req.body ?? {}
+      safeJoin(repo, relPath)
+      if (typeof text !== 'string' || !text.trim()) {
+        throw Object.assign(new Error('코멘트 내용이 비어 있습니다'), { status: 400 })
+      }
+      const comment = await addComment(gitDir, {
+        path: relPath,
+        line,
+        side,
+        code,
+        text: text.trim(),
+        sha: validSha(sha),
+      })
+      res.json({ comment })
+    }),
+  )
+
+  app.patch(
+    '/api/comments',
+    wrap(async (req, res) => {
+      const { id, text } = req.body ?? {}
+      if (!id || typeof text !== 'string' || !text.trim()) {
+        throw Object.assign(new Error('id와 내용이 필요합니다'), { status: 400 })
+      }
+      const updated = await updateComment(gitDir, id, text.trim())
+      if (!updated) throw Object.assign(new Error('코멘트를 찾을 수 없습니다'), { status: 404 })
+      res.json({ comment: updated })
+    }),
+  )
+
+  app.delete(
+    '/api/comments',
+    wrap(async (req, res) => {
+      if (req.query.all === '1') {
+        await clearComments(gitDir)
+        return res.json({ ok: true })
+      }
+      const removed = await removeComment(gitDir, req.query.id)
+      if (!removed) throw Object.assign(new Error('코멘트를 찾을 수 없습니다'), { status: 404 })
+      res.json({ ok: true })
+    }),
+  )
+
   app.get(
     '/api/grep',
     wrap(async (req, res) => {
@@ -258,7 +321,7 @@ export function createServer({ repo, token, gitDir, dev = false }) {
       'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
     })
-    // 재접속 간격. 너무 짧으면(1초) gitshow를 끈 뒤에도 브라우저가 계속
+    // 재접속 간격. 너무 짧으면(1초) grmide를 끈 뒤에도 브라우저가 계속
     // 재접속을 시도하면서 페이지가 먹통이 된다.
     res.write('retry: 3000\n\n')
     clients.add(res)
@@ -283,7 +346,7 @@ export function createServer({ repo, token, gitDir, dev = false }) {
   // --- 정적 파일: dev 모드에서는 vite dev server가 프론트를 서빙한다.
   if (!dev) {
     if (!fs.existsSync(WEB_DIST)) {
-      console.warn(`[gitshow] 빌드 결과물이 없습니다: ${WEB_DIST}\n            npm run build 를 먼저 실행하세요.`)
+      console.warn(`[grmide] 빌드 결과물이 없습니다: ${WEB_DIST}\n            npm run build 를 먼저 실행하세요.`)
     }
     app.use(express.static(WEB_DIST, { index: false }))
     app.get('*', (_req, res) => {

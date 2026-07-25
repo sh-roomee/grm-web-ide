@@ -15,9 +15,47 @@ const props = defineProps({
   // 기준점 대비로 볼 수 있는 상태인지 (기준점이 있고 워킹트리 diff일 때만)
   canCompareBase: { type: Boolean, default: false },
   compareBase: { type: Boolean, default: false },
+  // 줄별 리뷰 코멘트: (path, side, line) => 코멘트 배열 | null
+  commentsFor: { type: Function, default: () => null },
 })
 
-const emit = defineEmits(['update:context', 'update:compareBase'])
+const emit = defineEmits(['update:context', 'update:compareBase', 'comment', 'delete-comment'])
+
+// --- 리뷰 코멘트: 줄 번호를 누르면 입력창이 열린다
+const composing = ref(null) // { side, line, text }
+
+function startComment(side, cell) {
+  if (!cell?.num) return
+  composing.value = { side, line: cell.num, code: cell.text, text: '' }
+  nextTick(() => document.querySelector('.comment-input')?.focus())
+}
+
+function submitComment() {
+  const draft = composing.value
+  if (!draft?.text.trim()) return
+  emit('comment', {
+    line: draft.line,
+    side: draft.side,
+    code: draft.code,
+    text: draft.text.trim(),
+  })
+  composing.value = null
+}
+
+const isComposing = (side, num) =>
+  Boolean(num) && composing.value?.side === side && composing.value?.line === num
+
+/** 이 행(좌/우)에 달린 코멘트를 모아 온다. */
+function rowComments(row) {
+  const out = []
+  for (const side of ['left', 'right']) {
+    const cell = row[side]
+    if (!cell?.num) continue
+    const list = props.commentsFor(side, cell.num)
+    if (list) for (const comment of list) out.push({ side, comment })
+  }
+  return out
+}
 
 const wrap = ref(false)
 const scroller = ref(null)
@@ -205,7 +243,7 @@ const VIEW_MODES = [
 ]
 
 // 보기 방식은 파일을 옮겨도 유지되어야 한다. 파일마다 다시 고르는 건 번거롭다.
-const STORE_KEY = 'gitshow:viewContext'
+const STORE_KEY = 'grmide:viewContext'
 const context = ref(Number(localStorage.getItem(STORE_KEY)) || 3)
 
 function setContext(value) {
@@ -338,7 +376,13 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
               :data-line="single ? item.row.right?.num : undefined"
             >
               <template v-if="!single">
-                <span class="gutter">{{ item.row.left?.num ?? '' }}</span>
+                <span
+                  class="gutter"
+                  :class="{ clickable: item.row.left?.num }"
+                  title="이 줄에 코멘트 (클릭)"
+                  @click="startComment('left', item.row.left)"
+                  >{{ item.row.left?.num ?? '' }}</span
+                >
                 <span
                   class="code"
                   :class="{ empty: !item.row.left }"
@@ -355,7 +399,13 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
                 >
               </template>
 
-              <span class="gutter">{{ item.row.right?.num ?? '' }}</span>
+              <span
+                class="gutter"
+                :class="{ clickable: item.row.right?.num }"
+                title="이 줄에 코멘트 (클릭)"
+                @click="startComment('right', item.row.right)"
+                >{{ item.row.right?.num ?? '' }}</span
+              >
               <span
                 class="code"
                 :class="{ empty: !item.row.right }"
@@ -371,6 +421,46 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
                 ></span
               >
             </div>
+
+            <!-- 이 줄에 달린 코멘트 -->
+            <template v-if="item.kind === 'row'">
+              <div
+                v-for="entry in rowComments(item.row)"
+                :key="entry.comment.id"
+                class="comment"
+              >
+                <span class="comment-where">{{ entry.side === 'left' ? '삭제된 줄' : '' }}</span>
+                <span class="comment-text">{{ entry.comment.text }}</span>
+                <button
+                  class="comment-del"
+                  title="코멘트 삭제"
+                  @click="emit('delete-comment', entry.comment.id)"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <!-- 코멘트 입력 -->
+              <div
+                v-if="
+                  isComposing('left', item.row.left?.num) ||
+                  isComposing('right', item.row.right?.num)
+                "
+                class="comment compose"
+              >
+                <textarea
+                  class="comment-input"
+                  :placeholder="`${composing.line}번째 줄에 코멘트 — ⌘Enter 저장, Esc 취소`"
+                  v-model="composing.text"
+                  rows="2"
+                  @keydown.enter.meta.prevent="submitComment()"
+                  @keydown.enter.ctrl.prevent="submitComment()"
+                  @keydown.esc.prevent="composing = null"
+                />
+                <button class="comment-save" @click="submitComment()">저장</button>
+                <button class="comment-cancel" @click="composing = null">취소</button>
+              </div>
+            </template>
           </template>
 
           <p v-if="diff.truncated" class="notice">
@@ -583,6 +673,82 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
   user-select: none;
   font-variant-numeric: tabular-nums;
   font-size: 11px;
+}
+.gutter.clickable {
+  cursor: pointer;
+}
+.gutter.clickable:hover {
+  background: #3a3d42;
+  color: var(--accent);
+}
+
+/* --- 리뷰 코멘트 --- */
+.comment {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 12px 5px 56px;
+  background: #2b2f26;
+  border-left: 3px solid var(--status-added);
+  font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.comment-where {
+  flex: none;
+  color: var(--fg-faint);
+  font-size: 10.5px;
+}
+.comment-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.comment-del {
+  flex: none;
+  color: var(--fg-faint);
+  font-size: 11px;
+}
+.comment-del:hover {
+  color: var(--status-deleted);
+}
+
+.comment.compose {
+  background: #26303a;
+  border-left-color: var(--accent);
+  align-items: flex-end;
+}
+.comment-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  font: inherit;
+  font-size: 12px;
+  resize: vertical;
+  outline: none;
+}
+.comment-save,
+.comment-cancel {
+  flex: none;
+  padding: 3px 10px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+.comment-save {
+  background: #35548c;
+  color: #fff;
+}
+.comment-save:hover {
+  background: #3f63a5;
+}
+.comment-cancel {
+  color: var(--fg-dim);
+  border: 1px solid var(--border-strong);
 }
 
 .code {

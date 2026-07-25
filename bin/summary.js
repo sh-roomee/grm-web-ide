@@ -2,7 +2,7 @@ import path from 'node:path'
 import process from 'node:process'
 
 /**
- * gitshow를 실행한 터미널에 띄우는 요약.
+ * grmide를 실행한 터미널에 띄우는 요약.
  *
  * 주소만 찍고 끝내면 "브라우저를 봐야 뭐가 바뀐지 안다"가 된다. 이 도구를 쓰는
  * 사람은 터미널에 손을 두고 있으니, 열기 전에 규모를 알 수 있어야 한다.
@@ -117,7 +117,7 @@ export function renderSummary({ repo, branch, head, status, url, dev, token }) {
   const uniquePaths = new Set(all.map((f) => f.path))
   const out = []
 
-  out.push(`${c.bold('gitshow')}  ${c.bold(path.basename(repo))}  ${c.cyan(`⎇ ${branch}`)}`)
+  out.push(`${c.bold('grmide')}  ${c.bold(path.basename(repo))}  ${c.cyan(`⎇ ${branch}`)}`)
   out.push(`${label('경로')}${c.dim(repo)}`)
 
   if (head) {

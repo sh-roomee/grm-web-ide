@@ -31,7 +31,7 @@ test('색 코드가 섞이지 않는다 (TTY가 아닐 때)', () => {
 
 test('저장소 이름 · 브랜치 · 경로 · HEAD를 보여준다', () => {
   const out = renderSummary({ ...BASE, status: EMPTY })
-  assert.match(out, /gitshow {2}my-project/)
+  assert.match(out, /grmide {2}my-project/)
   assert.match(out, /⎇ main/)
   assert.ok(out.includes('/Users/me/work/my-project'))
   assert.ok(out.includes('abc1234 이전 커밋'))

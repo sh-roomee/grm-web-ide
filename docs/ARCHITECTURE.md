@@ -5,7 +5,7 @@
 ```
 터미널                     Node 프로세스                        브라우저
 ------                     ------------                        --------
-gitshow  ──실행──▶  bin/gitshow.js
+grmide  ──실행──▶  bin/grmide.js
                       │ 저장소 루트 탐색, 토큰 생성, 포트 확보
                       ▼
                     server/index.js  ──── HTTP ────▶  web (Vue 3)
@@ -20,13 +20,14 @@ gitshow  ──실행──▶  bin/gitshow.js
 
 | 경로 | 역할 |
 | --- | --- |
-| `bin/gitshow.js` | CLI. 인자 파싱, 저장소 루트 탐색, 토큰 생성, 포트 확보, 브라우저 실행 |
+| `bin/grmide.js` | CLI. 인자 파싱, 저장소 루트 탐색, 토큰 생성, 포트 확보, 브라우저 실행 |
 | `bin/summary.js` | 실행 시 터미널에 찍는 요약 (변경 규모·파일 목록·주소) |
 | `server/index.js` | Express 앱. 라우팅, 토큰 인증, 경로 검증, SSE 브로드캐스트, 정적 파일 |
 | `server/git.js` | git 명령 래퍼. status/diff/stage 파싱 |
 | `server/diff.js` | unified diff 파서 + 단어 단위 diff. 순수 함수 |
 | `server/language.js` | 확장자→언어 판단, Vue SFC 블록 경계 |
 | `server/log.js` | `git log` 파싱 + 그래프 레인 계산. 순수 함수 |
+| `server/state.js` | 리뷰 코멘트 저장 + AI에게 넘길 프롬프트 생성 |
 | `server/watcher.js` | chokidar 감시. 디바운스 후 콜백 |
 | `web/src/api.js` | 서버 통신. 토큰 보관 |
 | `web/src/App.vue` | 상태 소유. 상태 로딩, 파일 선택, 키보드 |
@@ -36,6 +37,7 @@ gitshow  ──실행──▶  bin/gitshow.js
 | `web/src/components/SearchEverywhere.vue` | 통합 검색 (Shift 두 번 · ⌘P · ⌘⇧F) |
 | `web/src/components/TabBar.vue` | 열어 둔 문서 탭 |
 | `web/src/composables/useTabs.js` | 탭 목록·활성 탭·갱신 규칙 |
+| `web/src/composables/useComments.js` | 리뷰 코멘트 상태 + 클립보드 복사 |
 | `web/src/lib/fuzzy.js` | 경로 퍼지 매칭 점수 |
 | `web/src/composables/useHistory.js` | 히스토리 상태 (로그 페이지, 선택한 커밋) |
 | `web/src/components/DiffViewer.vue` | 우측 side-by-side diff |
@@ -47,6 +49,7 @@ gitshow  ──실행──▶  bin/gitshow.js
 | `test/highlight.test.js` | 문법 강조 / 구획 판단 테스트 |
 | `test/summary.test.js` | 터미널 요약 테스트 |
 | `test/log.test.js` | 로그 파싱 / 그래프 레인 테스트 |
+| `test/state.test.js` | 프롬프트 생성 테스트 |
 
 ## 설계 결정
 
@@ -119,7 +122,7 @@ IDE는 창에 포커스를 줘야 갱신되고, 그게 오히려 방해가 된�
 
 ### 재접속은 브라우저에 맡기지 않는다
 
-`EventSource`의 자동 재접속을 쓰지 않고 직접 돌린다(`web/src/api.js`). gitshow를
+`EventSource`의 자동 재접속을 쓰지 않고 직접 돌린다(`web/src/api.js`). grmide를
 끈 뒤 브라우저가 재접속을 반복하면서 **페이지가 먹통이 되는 것을 실제로 겪었다.**
 `retry` 값을 늘려도 재현됐다.
 
@@ -132,7 +135,7 @@ IDE는 창에 포커스를 줘야 갱신되고, 그게 오히려 방해가 된�
 ### 종료할 때 SSE 연결을 먼저 끊는다
 
 `server.close()`는 열려 있는 연결이 끝나기를 기다린다. SSE는 스스로 끝나지 않으므로,
-연결을 먼저 끊어주지 않으면 **브라우저 탭이 열려 있는 동안 Ctrl-C로 gitshow가
+연결을 먼저 끊어주지 않으면 **브라우저 탭이 열려 있는 동안 Ctrl-C로 grmide가
 종료되지 않는다.** 실제로 이 상태에 빠졌었다.
 
 그래서 종료 시 순서가 있다: 모든 SSE 응답을 `end()` → `closeAllConnections()` →
@@ -180,8 +183,8 @@ AI가 20분 동안 계속 고치는 동안 `git diff`는 매번 전체를 다시
 구현은 git 객체 모델을 그대로 쓴다:
 
 ```
-GIT_INDEX_FILE=.git/gitshow-index git add -A && git write-tree   → 트리 sha
-git update-ref refs/gitshow/baseline <tree>
+GIT_INDEX_FILE=.git/grmide-index git add -A && git write-tree   → 트리 sha
+git update-ref refs/grmide/baseline <tree>
 git diff-tree -r <baseline> <현재 트리>                          → 새로 바뀐 것만
 ```
 
@@ -189,7 +192,7 @@ git diff-tree -r <baseline> <현재 트리>                          → 새로 
   그 파일을 지우지 않고 재사용하는 이유는 git의 stat 캐시다 — 빈 index로 시작하면
   저장소 전체를 다시 해시해서 큰 저장소에서 몇 초가 걸린다.
 - **ref에 매단다.** 트리 객체만 만들면 참조되지 않아 `git gc`에 사라진다.
-  `refs/gitshow/*`는 `--all`에 포함되지 않으므로 히스토리 그래프도 오염되지 않는다.
+  `refs/grmide/*`는 `--all`에 포함되지 않으므로 히스토리 그래프도 오염되지 않는다.
 - **트리끼리 비교한다.** `git diff <tree>`는 index에 없는 경로를 비교 대상에서
   빼기 때문에 새로 생긴 untracked 파일이 누락된다.
 - 기준점이 없으면 비교를 아예 하지 않는다. 이 기능을 안 쓰는 사람은 비용이 0이다.
@@ -202,6 +205,32 @@ git diff-tree -r <baseline> <현재 트리>                          → 새로 
 
 개별 확인은 Cursor를 참고했다. 누르면 **다음 새 변경으로 자동으로 넘어간다** —
 44개를 훑을 때 필요한 건 그 반복뿐이다.
+
+### 코멘트는 클립보드로 넘긴다
+
+리뷰 흐름은 이렇게 끊겨 있었다: 브라우저에서 diff를 보고 → 머릿속에 기억 →
+터미널로 가서 경로와 줄 번호를 다시 타이핑. 그 옮겨 적는 일을 없애는 것이 이
+기능의 전부다.
+
+**전달 수단은 클립보드다.** 저장소에 `review.md` 같은 파일을 떨어뜨리면 그것이
+다시 변경 목록에 떠서 리뷰를 방해하고, AI 도구마다 파일을 읽는 방식도 다르다.
+클립보드는 어떤 도구를 쓰든 붙여넣기가 되고 흔적을 남기지 않는다.
+
+프롬프트에 담는 정보는 셋이다 — **경로 · 줄 번호 · 그때 본 코드**. AI가 위치를
+정확히 찾는 데 필요한 최소치이고, `code`를 코멘트와 함께 저장해 두므로 그 사이
+파일이 바뀌어도 무엇을 보고 쓴 코멘트인지 남는다. 형식은 `buildPrompt()` 순수
+함수에 있고 테스트로 고정했다 — 이 문자열이 실제 산출물이다.
+
+### 코멘트 저장은 `.git` 안에
+
+세 가지 이유로 워킹트리를 쓰지 않는다. 파일을 만들면 grmide 자신의 변경 목록에
+뜬다. 저장소마다 따로 남아야 한다. 감시자가 `.git`을 보지 않으므로 저장할 때
+화면이 새로고침되지 않는다.
+
+브라우저 localStorage도 아니다 — 포트가 바뀌면 다른 origin이 되어 내용을 잃는다.
+(확인 체크는 아직 localStorage에 있고, 같은 이유로 옮겨야 한다. 로드맵 항목.)
+
+쓰기는 임시 파일에 쓴 뒤 rename한다. 쓰다 죽어도 반쪽 JSON이 남지 않는다.
 
 ### 문서 탭이 무엇을 보여줄지 정한다
 
@@ -321,7 +350,7 @@ combined diff(`git show`의 기본)는 읽기 어렵다. `<sha>^1 <sha>` 비교�
 고치는 상황에서는 이게 오히려 위험하다. `status:추가줄수:삭제줄수`를 지문으로
 저장하고 지문이 달라지면 확인 상태를 자동으로 해제한다.
 
-저장 위치는 `localStorage`의 `gitshow:reviewed:<저장소 절대경로>`. 서버에
+저장 위치는 `localStorage`의 `grmide:reviewed:<저장소 절대경로>`. 서버에
 두지 않는 이유는 이 상태가 "그 사람이 어디까지 봤는지"라는 개인적/일시적
 정보이고, 저장소를 오염시킬 이유가 없기 때문이다.
 

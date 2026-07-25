@@ -36,7 +36,7 @@ export function createWatcher(repo, onChange) {
 
   for (const w of [tree, meta]) {
     w.on('all', () => emit())
-    w.on('error', (err) => console.error('[gitshow] watcher 오류:', err.message))
+    w.on('error', (err) => console.error('[grmide] watcher 오류:', err.message))
   }
 
   return {
