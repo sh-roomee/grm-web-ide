@@ -1,0 +1,36 @@
+{
+  "name": "grm-web-ide",
+  "version": "0.1.0",
+  "private": true,
+  "description": "터미널 중심 개발을 위한 브라우저 git 뷰어. gitshow 명령으로 현재 디렉토리의 변경사항을 브라우저에서 확인한다.",
+  "type": "module",
+  "bin": {
+    "gitshow": "./bin/gitshow.js"
+  },
+  "files": [
+    "bin",
+    "server",
+    "web/dist"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "GITSHOW_DEV=1 node bin/gitshow.js --no-open --port 4317",
+    "dev:web": "vite --config web/vite.config.js",
+    "build": "vite build --config web/vite.config.js",
+    "start": "node bin/gitshow.js",
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "chokidar": "^3.6.0",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.4",
+    "concurrently": "^8.2.2",
+    "vite": "^5.2.0",
+    "vue": "^3.4.21"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

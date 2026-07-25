@@ -1,0 +1,92 @@
+/* JetBrains 계열 다크 테마를 기준으로 한 색 토큰. 초기 버전은 다크만 지원한다. */
+:root {
+  --bg: #1e1f22;
+  --bg-panel: #2b2d30;
+  --bg-elevated: #313438;
+  --border: #393b40;
+  --border-strong: #4e5157;
+  --fg: #dfe1e5;
+  --fg-dim: #9da0a8;
+  --fg-faint: #6f737a;
+  --accent: #548af7;
+
+  --diff-add-bg: #29382e;
+  --diff-del-bg: #3b2b2f;
+  --diff-mod-bg: #2c3441;
+  --diff-gutter: #26282e;
+
+  /* 변경된 단어 배경. 문법 강조 글자색이 위에 얹히므로 채도를 낮추고,
+     대신 밑줄로 존재를 알린다. 배경만 진하게 하면 글자색이 죽는다. */
+  --diff-add-word: #2f5d3b;
+  --diff-add-line: #62b543;
+  --diff-del-word: #6b3339;
+  --diff-del-line: #cf5b56;
+
+  /* 문법 강조 토큰. highlight/ 플러그인이 내보내는 cls 이름과 짝이다. */
+  --tok-keyword: #cf8e6d;
+  --tok-string: #6aab73;
+  --tok-number: #2aacb8;
+  --tok-comment: #7a7e85;
+  --tok-function: #56a8f5;
+  --tok-tag: #e8bf6a;
+  --tok-attr: #bfa4d6;
+  --tok-property: #bfa4d6;
+  --tok-directive: #cf8e6d;
+  --tok-selector: #e8bf6a;
+  --tok-variable: #c77dbb;
+  --tok-entity: #2aacb8;
+  --tok-interp: #cf8e6d;
+  --tok-operator: #a9b7c6;
+  --tok-punct: #8b9099;
+
+  --status-added: #62b543;
+  --status-modified: #548af7;
+  --status-deleted: #cf5b56;
+  --status-untracked: #9876aa;
+  --status-conflicted: #e8a33d;
+
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --row-height: 20px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Apple SD Gothic Neo', sans-serif;
+  font-size: 13px;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #4a4d54;
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #5c6068;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
