@@ -226,7 +226,7 @@ export function createServer({ repo, token, gitDir, dev = false }) {
   app.post(
     '/api/comments',
     wrap(async (req, res) => {
-      const { path: relPath, line, side, code, text, sha } = req.body ?? {}
+      const { path: relPath, line, endLine, side, code, text, sha } = req.body ?? {}
       safeJoin(repo, relPath)
       if (typeof text !== 'string' || !text.trim()) {
         throw Object.assign(new Error('코멘트 내용이 비어 있습니다'), { status: 400 })
@@ -234,6 +234,7 @@ export function createServer({ repo, token, gitDir, dev = false }) {
       const comment = await addComment(gitDir, {
         path: relPath,
         line,
+        endLine,
         side,
         code,
         text: text.trim(),

@@ -63,6 +63,24 @@ test('줄 번호가 없으면 경로만 쓴다', () => {
   assert.ok(!out.includes('App.vue:null'))
 })
 
+test('여러 줄 범위는 path:from-to 로 표기한다', () => {
+  const out = buildPrompt([
+    comment({
+      line: 240,
+      endLine: 244,
+      code: '    if(this.isTeacherMode){\n      this.toggleTeacherMode({\n      });',
+      text: '이 블록 전체를 왜 이렇게 바꿨어?',
+    }),
+  ])
+  assert.ok(out.includes('web/src/App.vue:240-244'), '범위 표기')
+  assert.ok(out.includes('toggleTeacherMode'), '고른 줄들이 모두 들어간다')
+})
+
+test('endLine이 line과 같거나 없으면 한 줄로 표기한다', () => {
+  assert.ok(buildPrompt([comment({ line: 10, endLine: null })]).includes('App.vue:10'))
+  assert.ok(!buildPrompt([comment({ line: 10, endLine: 10 })]).includes('10-10'))
+})
+
 test('마지막에 개행 하나로 끝난다 (붙여넣기 대비)', () => {
   const out = buildPrompt([comment()])
   assert.ok(out.endsWith('\n'))

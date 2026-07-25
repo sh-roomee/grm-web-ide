@@ -283,6 +283,7 @@ ASCII 그림 대신 숫자로 내보내고, 그림은 클라이언트가 SVG로 
       "id": "cms0anuc00hfd",
       "path": "web/src/App.vue",
       "line": 214,
+      "endLine": null,
       "side": "right",
       "code": "    if (line) await nextTick(() => scrollToLine(line))",
       "text": "이 nextTick 왜 필요해?",
@@ -295,6 +296,8 @@ ASCII 그림 대신 숫자로 내보내고, 그림은 클라이언트가 SVG로 
 ```
 
 - `side`는 `left`(삭제된 쪽) / `right`(현재 쪽)
+- `endLine`은 여러 줄을 끌어 고른 코멘트일 때만 채워진다. 프롬프트에는
+  `path:3-6` 형태로 적히고, `code`에는 그 범위의 줄들이 모두 담긴다
 - `code`는 **코멘트를 쓸 때 본 그 줄의 내용**이다. 나중에 프롬프트를 만들 때
   파일을 다시 읽지 않아도 되고, 그 사이 파일이 바뀌어도 무엇을 보고 쓴 코멘트인지
   남는다
@@ -305,7 +308,7 @@ ASCII 그림 대신 숫자로 내보내고, 그림은 클라이언트가 SVG로 
 ### POST /api/comments
 
 ```json
-{ "path": "web/src/App.vue", "line": 214, "side": "right", "code": "…", "text": "…" }
+{ "path": "web/src/App.vue", "line": 214, "endLine": null, "side": "right", "code": "…", "text": "…" }
 ```
 
 `text`가 비어 있으면 400. 500개를 넘으면 오래된 것부터 버린다.

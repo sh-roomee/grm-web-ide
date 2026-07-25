@@ -21,20 +21,76 @@ const props = defineProps({
 
 const emit = defineEmits(['update:context', 'update:compareBase', 'comment', 'delete-comment'])
 
-// --- 리뷰 코멘트: 줄 번호를 누르면 입력창이 열린다
-const composing = ref(null) // { side, line, text }
+/**
+ * 텍스트 선택을 한쪽 컬럼에 붙잡아 둔다.
+ *
+ * DOM 순서가 `[좌번호, 좌코드, 우번호, 우코드]`라서, 선택이 행을 넘어가는 순간
+ * 반대쪽 셀을 지나간다. 그러면 화면에서도 양쪽이 칠해지고 복사해도 좌우가
+ * 뒤섞인 텍스트가 나온다.
+ *
+ * 해결: 드래그를 시작한 쪽을 기억하고 반대쪽 셀에 `user-select: none`을 준다.
+ * 브라우저가 선택을 확장할 때 그 셀들을 건너뛰므로, 한쪽 컬럼만 깔끔하게 잡힌다.
+ */
+const selectSide = ref(null) // 'left' | 'right' | null
 
-function startComment(side, cell) {
+function onCodeMouseDown(side) {
+  selectSide.value = side
+}
+
+// --- 리뷰 코멘트: 줄 번호를 끌어 여러 줄을 고를 수 있다
+const composing = ref(null) // { side, from, to, code, text }
+const dragging = ref(null) // { side, from, to } — 끄는 중
+
+function gutterDown(side, cell, event) {
   if (!cell?.num) return
-  composing.value = { side, line: cell.num, code: cell.text, text: '' }
+  event.preventDefault() // 줄 번호를 끄는 동안 텍스트가 선택되지 않게
+  dragging.value = { side, from: cell.num, to: cell.num }
+}
+
+function gutterEnter(side, cell) {
+  if (!dragging.value || dragging.value.side !== side || !cell?.num) return
+  dragging.value.to = cell.num
+}
+
+function gutterUp() {
+  const drag = dragging.value
+  dragging.value = null
+  if (!drag) return
+  const from = Math.min(drag.from, drag.to)
+  const to = Math.max(drag.from, drag.to)
+  composing.value = { side: drag.side, from, to, code: rangeCode(drag.side, from, to), text: '' }
   nextTick(() => document.querySelector('.comment-input')?.focus())
+}
+
+/** 고른 범위의 코드를 모아 온다. 코멘트와 함께 저장해 프롬프트에 넣는다. */
+function rangeCode(side, from, to) {
+  const lines = []
+  for (const item of items.value) {
+    if (item.kind !== 'row') continue
+    const cell = item.row[side]
+    if (cell?.num >= from && cell?.num <= to) lines.push(cell.text)
+  }
+  return lines.join('\n')
+}
+
+/** 지금 고르는 중이거나 코멘트를 쓰는 중인 범위에 이 줄이 들어가나. */
+function inPicked(side, num) {
+  if (!num) return false
+  for (const range of [dragging.value, composing.value]) {
+    if (!range || range.side !== side) continue
+    const from = Math.min(range.from, range.to)
+    const to = Math.max(range.from, range.to)
+    if (num >= from && num <= to) return true
+  }
+  return false
 }
 
 function submitComment() {
   const draft = composing.value
   if (!draft?.text.trim()) return
   emit('comment', {
-    line: draft.line,
+    line: draft.from,
+    endLine: draft.to > draft.from ? draft.to : null,
     side: draft.side,
     code: draft.code,
     text: draft.text.trim(),
@@ -42,10 +98,11 @@ function submitComment() {
   composing.value = null
 }
 
-const isComposing = (side, num) =>
-  Boolean(num) && composing.value?.side === side && composing.value?.line === num
+/** 코멘트 입력창은 고른 범위의 마지막 줄 아래에 붙인다. */
+const isComposingAt = (side, num) =>
+  Boolean(num) && composing.value?.side === side && composing.value?.to === num
 
-/** 이 행(좌/우)에 달린 코멘트를 모아 온다. */
+/** 이 행에 달린 코멘트. 범위 코멘트는 마지막 줄 아래에 보여준다. */
 function rowComments(row) {
   const out = []
   for (const side of ['left', 'right']) {
@@ -56,6 +113,11 @@ function rowComments(row) {
   }
   return out
 }
+
+const rangeLabel = (comment) =>
+  comment.endLine && comment.endLine > comment.line
+    ? `${comment.line}–${comment.endLine}행`
+    : `${comment.line}행`
 
 const wrap = ref(false)
 const scroller = ref(null)
@@ -349,7 +411,13 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
         />
       </div>
 
-      <div ref="scroller" class="scroll" :class="{ wrap }">
+      <div
+        ref="scroller"
+        class="scroll"
+        :class="[{ wrap }, selectSide && `sel-${selectSide}`]"
+        @mouseup="gutterUp()"
+        @mouseleave="dragging = null"
+      >
         <p v-if="error" class="notice err">{{ error }}</p>
         <p v-else-if="loading" class="notice">불러오는 중…</p>
         <p v-else-if="!file" class="notice"></p>
@@ -378,15 +446,17 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
               <template v-if="!single">
                 <span
                   class="gutter"
-                  :class="{ clickable: item.row.left?.num }"
-                  title="이 줄에 코멘트 (클릭)"
-                  @click="startComment('left', item.row.left)"
+                  :class="{ clickable: item.row.left?.num, picked: inPicked('left', item.row.left?.num) }"
+                  title="코멘트 — 클릭하거나 여러 줄을 끌어서 고른다"
+                  @mousedown="gutterDown('left', item.row.left, $event)"
+                  @mouseenter="gutterEnter('left', item.row.left)"
                   >{{ item.row.left?.num ?? '' }}</span
                 >
                 <span
-                  class="code"
-                  :class="{ empty: !item.row.left }"
+                  class="code side-left"
+                  :class="{ empty: !item.row.left, picked: inPicked('left', item.row.left?.num) }"
                   :data-hit="item.left?.first ?? undefined"
+                  @mousedown="onCodeMouseDown('left')"
                   ><span
                     v-for="(span, i) in item.left?.spans"
                     :key="i"
@@ -401,15 +471,17 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
 
               <span
                 class="gutter"
-                :class="{ clickable: item.row.right?.num }"
-                title="이 줄에 코멘트 (클릭)"
-                @click="startComment('right', item.row.right)"
+                :class="{ clickable: item.row.right?.num, picked: inPicked('right', item.row.right?.num) }"
+                title="코멘트 — 클릭하거나 여러 줄을 끌어서 고른다"
+                @mousedown="gutterDown('right', item.row.right, $event)"
+                @mouseenter="gutterEnter('right', item.row.right)"
                 >{{ item.row.right?.num ?? '' }}</span
               >
               <span
-                class="code"
-                :class="{ empty: !item.row.right }"
+                class="code side-right"
+                :class="{ empty: !item.row.right, picked: inPicked('right', item.row.right?.num) }"
                 :data-hit="item.right?.first ?? undefined"
+                @mousedown="onCodeMouseDown('right')"
                 ><span
                   v-for="(span, i) in item.right?.spans"
                   :key="i"
@@ -429,7 +501,9 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
                 :key="entry.comment.id"
                 class="comment"
               >
-                <span class="comment-where">{{ entry.side === 'left' ? '삭제된 줄' : '' }}</span>
+                <span class="comment-where">
+                  {{ rangeLabel(entry.comment) }}{{ entry.side === 'left' ? ' · 삭제된 쪽' : '' }}
+                </span>
                 <span class="comment-text">{{ entry.comment.text }}</span>
                 <button
                   class="comment-del"
@@ -443,14 +517,14 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
               <!-- 코멘트 입력 -->
               <div
                 v-if="
-                  isComposing('left', item.row.left?.num) ||
-                  isComposing('right', item.row.right?.num)
+                  isComposingAt('left', item.row.left?.num) ||
+                  isComposingAt('right', item.row.right?.num)
                 "
                 class="comment compose"
               >
                 <textarea
                   class="comment-input"
-                  :placeholder="`${composing.line}번째 줄에 코멘트 — ⌘Enter 저장, Esc 취소`"
+                  :placeholder="`${composing.from === composing.to ? `${composing.from}행` : `${composing.from}–${composing.to}행`}에 코멘트 — ⌘Enter 저장, Esc 취소`"
                   v-model="composing.text"
                   rows="2"
                   @keydown.enter.meta.prevent="submitComment()"
@@ -680,6 +754,25 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
 .gutter.clickable:hover {
   background: #3a3d42;
   color: var(--accent);
+}
+/* 코멘트로 고른 줄 범위 */
+.gutter.picked {
+  background: #35548c;
+  color: #fff;
+}
+.code.picked {
+  box-shadow: inset 0 0 0 9999px rgba(84, 138, 247, 0.12);
+}
+
+/**
+ * 드래그를 시작한 쪽만 선택되게 한다.
+ *
+ * 반대쪽 셀에 user-select: none을 주면 브라우저가 선택을 확장할 때 그 셀들을
+ * 건너뛴다. 이러면 화면에서도 한쪽만 칠해지고, 복사해도 좌우가 섞이지 않는다.
+ */
+.scroll.sel-left .code.side-right,
+.scroll.sel-right .code.side-left {
+  user-select: none;
 }
 
 /* --- 리뷰 코멘트 --- */

@@ -67,12 +67,14 @@ async function writeState(gitDir, state) {
  * `code`(그 줄의 내용)를 함께 저장한다. 나중에 프롬프트로 뽑을 때 파일을 다시
  * 읽지 않아도 되고, 그 사이 파일이 바뀌어도 "무엇을 보고 쓴 코멘트인지"가 남는다.
  */
-export async function addComment(gitDir, { path: filePath, line, side, code, text, sha }) {
+export async function addComment(gitDir, { path: filePath, line, endLine, side, code, text, sha }) {
   const state = await readState(gitDir)
   const comment = {
     id: `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
     path: filePath,
     line: Number(line) || null,
+    // 여러 줄을 끌어 고른 코멘트. 한 줄이면 null이다.
+    endLine: Number(endLine) || null,
     side: side === 'left' ? 'left' : 'right',
     code: typeof code === 'string' ? code.slice(0, 500) : '',
     text: String(text).slice(0, 2000),
@@ -136,7 +138,7 @@ export function buildPrompt(comments, { language = 'text' } = {}) {
     list.sort((a, b) => (a.line ?? 0) - (b.line ?? 0))
     out.push(`## ${filePath}`)
     for (const comment of list) {
-      const where = comment.line ? `${filePath}:${comment.line}` : filePath
+      const where = lineLabel(filePath, comment)
       out.push('')
       out.push(`### ${where}`)
       if (comment.code.trim()) {
@@ -150,6 +152,13 @@ export function buildPrompt(comments, { language = 'text' } = {}) {
   }
 
   return out.join('\n').trimEnd() + '\n'
+}
+
+/** `path:12` 또는 `path:12-18`. AI가 위치를 찾는 데 쓰는 표기다. */
+function lineLabel(filePath, comment) {
+  if (!comment.line) return filePath
+  const end = comment.endLine && comment.endLine > comment.line ? `-${comment.endLine}` : ''
+  return `${filePath}:${comment.line}${end}`
 }
 
 const EXT_FENCE = {
