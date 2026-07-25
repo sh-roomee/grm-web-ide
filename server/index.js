@@ -128,6 +128,40 @@ export function createServer({ repo, token, dev = false }) {
     }),
   )
 
+  // 파일 목록은 자주 열리고(⌘P) 잘 안 바뀐다. 워킹트리가 바뀌면 버린다.
+  let fileCache = null
+
+  app.get(
+    '/api/files',
+    wrap(async (_req, res) => {
+      if (!fileCache) fileCache = await gitApi.listFiles(repo)
+      res.json({ files: fileCache })
+    }),
+  )
+
+  app.get(
+    '/api/file',
+    wrap(async (req, res) => {
+      const relPath = req.query.path
+      safeJoin(repo, relPath)
+      const sha = validSha(req.query.sha)
+      const [content, highlight] = await Promise.all([
+        gitApi.fileContent(repo, relPath, { sha }),
+        highlightInfo(repo, relPath),
+      ])
+      res.json({ path: relPath, sha: sha ?? null, ...highlight, ...content })
+    }),
+  )
+
+  app.get(
+    '/api/grep',
+    wrap(async (req, res) => {
+      const query = typeof req.query.q === 'string' ? req.query.q.slice(0, 200) : ''
+      const limit = clamp(Number.parseInt(req.query.limit ?? '400', 10), 1, 2000, 400)
+      res.json({ query, ...(await gitApi.grep(repo, query, { limit })) })
+    }),
+  )
+
   app.get(
     '/api/refs',
     wrap(async (_req, res) => {
@@ -188,7 +222,10 @@ export function createServer({ repo, token, dev = false }) {
     for (const client of clients) client.write(payload)
   }
 
-  const watcher = createWatcher(repo, () => broadcast('changed'))
+  const watcher = createWatcher(repo, () => {
+    fileCache = null
+    broadcast('changed')
+  })
 
   // --- 정적 파일: dev 모드에서는 vite dev server가 프론트를 서빙한다.
   if (!dev) {

@@ -1,4 +1,6 @@
 import { execFile } from 'node:child_process'
+import fs from 'node:fs/promises'
+import path from 'node:path'
 import { promisify } from 'node:util'
 
 import {
@@ -319,6 +321,92 @@ export async function commitFileDiff(repo, sha, path, { context = 3 } = {}) {
     return git(repo, ['diff', '--no-color', ctx, `${sha}^1`, sha, '--', path], { allowFail: true })
   }
   return git(repo, ['show', '--no-color', ctx, '--format=', sha, '--', path], { allowFail: true })
+}
+
+/**
+ * git이 아는 파일 목록. 추적 중인 파일 + untracked 파일.
+ *
+ * 파일시스템을 직접 훑지 않는 이유: `.gitignore`를 git이 알아서 반영해 주고
+ * (`node_modules`가 목록을 덮지 않는다), 이 도구의 범위가 "git이 보는 것"이다.
+ */
+export async function listFiles(repo) {
+  const raw = await git(repo, ['ls-files', '-co', '--exclude-standard', '-z'], { allowFail: true })
+  return raw.split('\0').filter(Boolean)
+}
+
+/**
+ * 저장소 전체 텍스트 검색 (⌘⇧F).
+ *
+ * `git grep`을 쓰는 이유: `.gitignore`를 알아서 지키고(`node_modules`가 결과를
+ * 덮지 않는다), 추적 중인 파일만 훑어 빠르다.
+ *
+ * 정규식이 아니라 고정 문자열(`-F`)이다. 코드에서 찾는 문자열은 대부분 특수문자를
+ * 포함하고, 타이핑 중간 상태(`(`, `[a-`)가 늘 오류가 되기 때문이다.
+ */
+export async function grep(repo, query, { limit = 400 } = {}) {
+  if (!query) return { hits: [], truncated: false }
+
+  const raw = await git(
+    repo,
+    [
+      'grep',
+      '--null', // path\0line\0text — 경로에 콜론이 있어도 안전하다
+      '-n',
+      '-I', // 바이너리 파일 건너뛰기
+      '-i',
+      '-F',
+      '-e',
+      query,
+      '--',
+      '.',
+    ],
+    { allowFail: true }, // 결과가 없으면 exit 1이다
+  )
+
+  const hits = []
+  for (const line of raw.split('\n')) {
+    if (!line) continue
+    const [path, lineNo, ...rest] = line.split('\0')
+    if (!path || !lineNo) continue
+    if (hits.length >= limit) return { hits, truncated: true }
+    hits.push({ path, line: Number(lineNo), text: rest.join('\0').slice(0, 400) })
+  }
+  return { hits, truncated: false }
+}
+
+const BINARY_SNIFF_BYTES = 8000
+
+/**
+ * 파일 내용을 줄 배열로 읽는다. 커밋을 지정하면 그 시점의 내용을 읽는다.
+ * 편집은 하지 않으므로 읽기 전용이다.
+ */
+export async function fileContent(repo, relPath, { sha = null, maxLines = 20000 } = {}) {
+  let buffer
+  if (sha) {
+    buffer = await execFileAsync('git', ['show', `${sha}:${relPath}`], {
+      cwd: repo,
+      maxBuffer: MAX_BUFFER,
+      encoding: 'buffer',
+    }).then((r) => r.stdout)
+  } else {
+    buffer = await fs.readFile(path.resolve(repo, relPath))
+  }
+
+  // NUL이 섞여 있으면 바이너리로 본다. git이 쓰는 것과 같은 어림짐작이다.
+  const head = buffer.subarray(0, BINARY_SNIFF_BYTES)
+  if (head.includes(0)) return { binary: true, lines: [], truncated: false }
+
+  const text = buffer.toString('utf8')
+  const all = text.split('\n')
+  // 마지막 개행 때문에 생긴 빈 줄은 버린다
+  if (all.length && all[all.length - 1] === '') all.pop()
+
+  return {
+    binary: false,
+    lines: all.slice(0, maxLines),
+    truncated: all.length > maxLines,
+    lineCount: all.length,
+  }
 }
 
 export async function stageFile(repo, path) {

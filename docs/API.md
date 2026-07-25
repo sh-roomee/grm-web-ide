@@ -240,6 +240,73 @@ ASCII 그림 대신 숫자로 내보내고, 그림은 클라이언트가 SVG로 
 
 `refs`의 `type`은 `head`(현재 브랜치) · `branch` · `remote` · `tag`.
 
+## GET /api/files
+
+⌘P(파일 열기)용 목록. 파라미터 없음.
+
+```json
+{ "files": ["README.md", "bin/gitshow.js", "server/git.js"] }
+```
+
+`git ls-files -co --exclude-standard` — 추적 중인 파일 + untracked 파일이고
+`.gitignore`는 git이 알아서 지킨다(`node_modules`가 목록을 덮지 않는다).
+파일시스템을 직접 훑지 않는다.
+
+서버에서 캐시하고, 워킹트리가 바뀌면(같은 감시자가 SSE를 쏘는 시점) 버린다.
+
+## GET /api/file
+
+읽기 전용 파일 내용.
+
+| 파라미터 | 필수 | 설명 |
+| --- | --- | --- |
+| `path` | O | 저장소 루트 기준 상대 경로 |
+| `sha` | | 커밋 해시. 주면 그 시점의 내용 (`git show <sha>:<path>`) |
+
+```json
+{
+  "path": "server/log.js",
+  "sha": null,
+  "language": "javascript",
+  "sections": null,
+  "binary": false,
+  "lines": ["/**", " * `git log` 출력을 파싱하고…"],
+  "lineCount": 238,
+  "truncated": false
+}
+```
+
+- 앞 8000바이트에 NUL이 있으면 `binary: true`이고 `lines`는 빈 배열이다
+- 20,000줄까지만 보내고 넘으면 `truncated: true`
+- 저장소 밖 경로는 403
+
+## GET /api/grep
+
+⌘⇧F(전체 텍스트 검색)용.
+
+| 파라미터 | 기본 | 설명 |
+| --- | --- | --- |
+| `q` | | 찾을 문자열 (최대 200자) |
+| `limit` | 400 | 결과 개수 상한 (1~2000) |
+
+```json
+{
+  "query": "renderSummary",
+  "hits": [
+    { "path": "bin/gitshow.js", "line": 8, "text": "import { renderSummary } from './summary.js'" }
+  ],
+  "truncated": false
+}
+```
+
+`git grep --null -n -I -i -F` 를 쓴다.
+
+- `--null` → `path\0line\0text`. 경로에 콜론이 있어도 안전하게 나눌 수 있다
+- `-I` 바이너리 건너뛰기, `-i` 대소문자 무시, **`-F` 고정 문자열(정규식 아님)**
+- 정규식을 받지 않는 이유: 코드에서 찾는 문자열은 대부분 특수문자를 포함하고,
+  타이핑 중간 상태(`(`, `[a-`)가 늘 오류가 된다
+- 결과가 없으면 git이 exit 1을 내는데, 오류로 보지 않고 빈 결과로 처리한다
+
 ## GET /api/refs
 
 브랜치 선택기에 쓸 목록. 파라미터 없음.

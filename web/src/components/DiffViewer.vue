@@ -1,7 +1,7 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 
-import { highlightLine } from '../highlight/index.js'
+import { buildSpans, tokenizeLine, findRanges } from '../highlight/index.js'
 
 const props = defineProps({
   file: { type: Object, default: null },
@@ -10,6 +10,8 @@ const props = defineProps({
   error: { type: String, default: '' },
   // 워킹트리가 아니라 커밋을 보고 있을 때 그 사실을 알려준다
   badge: { type: String, default: '' },
+  // 파일 하나를 그냥 읽는 모드(⌘P로 열었을 때). diff가 아니라 한 컬럼이다.
+  single: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['update:context'])
@@ -18,13 +20,54 @@ const wrap = ref(false)
 const scroller = ref(null)
 const cursor = ref(0) // 현재 몇 번째 변경 블록을 보고 있는지
 
-/**
- * 한 쪽(좌/우) 셀을 그릴 span 목록을 만든다.
- * 문법 강조는 이 computed 안에서 파일당 한 번만 돌고 결과가 캐시된다.
- */
-function sideSpans(side) {
+// --- 파일 안에서 찾기 (Cmd+F)
+const findOpen = ref(false)
+const findTerm = ref('')
+const findCursor = ref(0) // 현재 몇 번째 매치
+const findInput = ref(null)
+
+async function openFind() {
+  findOpen.value = true
+  await nextTick()
+  findInput.value?.select()
+}
+
+function closeFind() {
+  findOpen.value = false
+  findTerm.value = ''
+}
+
+/** n번째 매치로 이동한다. */
+function gotoHit(index) {
+  if (!hitCount.value) return
+  const next = (index + hitCount.value) % hitCount.value
+  findCursor.value = next
+  const el = scroller.value?.querySelector(`[data-hit="${next}"]`)
+  el?.scrollIntoView({ block: 'center', inline: 'nearest' })
+}
+
+const stepHit = (delta) => gotoHit(findCursor.value + delta)
+
+// 검색어를 바꾸면 첫 매치로 간다
+watch(findTerm, () => {
+  findCursor.value = 0
+  if (hitCount.value) nextTick(() => gotoHit(0))
+})
+
+/** 특정 줄로 이동한다 (⌘⇧F 결과에서 열었을 때). */
+function scrollToLine(lineNo) {
+  const el = scroller.value?.querySelector(`[data-line="${lineNo}"]`)
+  el?.scrollIntoView({ block: 'center' })
+  el?.classList.add('flash')
+  setTimeout(() => el?.classList.remove('flash'), 1200)
+}
+
+defineExpose({ openFind, scrollToLine })
+
+/** 한 쪽(좌/우)의 문법 토큰. 파일이 바뀔 때만 다시 계산된다. */
+function sideTokens(side) {
   if (!side) return null
-  return highlightLine(props.diff.language, side.text, side.words, {
+  return tokenizeLine(props.diff.language, side.text, {
     lineNo: side.num,
     sections: props.diff.sections,
   })
@@ -34,8 +77,11 @@ function sideSpans(side) {
  * 훅 헤더와 행을 하나의 평면 리스트로 만든다.
  * 연속된 변경 행 묶음의 첫 행에 blockIndex를 달아 두면 다음/이전 변경 이동을
  * DOM 조회 한 번으로 처리할 수 있다.
+ *
+ * 문법 토큰까지만 여기서 만든다. 찾기 강조는 아래 `items`에서 얹는다 — 같이
+ * 계산하면 검색어를 한 글자 칠 때마다 파일 전체를 다시 토크나이즈한다.
  */
-const items = computed(() => {
+const baseItems = computed(() => {
   const out = []
   if (!props.diff) return out
   let blockIndex = -1
@@ -55,14 +101,48 @@ const items = computed(() => {
       out.push({
         kind: 'row',
         row,
-        left: sideSpans(row.left),
-        right: sideSpans(row.right),
+        leftTokens: sideTokens(row.left),
+        rightTokens: sideTokens(row.right),
         blockIndex: mark,
         key: `r${hunk.newStart}-${i}`,
       })
     })
   }
   return out
+})
+
+/** 토큰 위에 변경 구간과 찾기 결과를 얹어 최종 span을 만든다. */
+const items = computed(() => {
+  const query = findTerm.value
+  let hitIndex = -1
+
+  return baseItems.value.map((item) => {
+    if (item.kind !== 'row') return item
+
+    const build = (side, tokens) => {
+      if (!side) return null
+      const hits = query ? findRanges(side.text, query) : null
+      const first = hits ? ++hitIndex : null // 이 셀의 첫 매치 번호
+      if (hits && hits.length > 1) hitIndex += hits.length - 1
+      return { spans: buildSpans(side.text, side.words, tokens, hits), hits, first }
+    }
+
+    const left = build(item.row.left, item.leftTokens)
+    const right = build(item.row.right, item.rightTokens)
+    return { ...item, left, right }
+  })
+})
+
+/** 찾기 결과 총 개수. 좌우 양쪽을 센다. */
+const hitCount = computed(() => {
+  if (!findTerm.value) return 0
+  let total = 0
+  for (const item of items.value) {
+    if (item.kind !== 'row') continue
+    total += item.left?.hits?.length ?? 0
+    total += item.right?.hits?.length ?? 0
+  }
+  return total
 })
 
 /**
@@ -140,13 +220,13 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
         <span class="path" :title="file.path">{{ file.path }}</span>
         <span class="badge">{{ badge || (file.staged ? 'staged' : 'working tree') }}</span>
 
-        <div class="nav">
+        <div v-if="!single" class="nav">
           <button title="이전 변경 (↑)" @click="goto(-1)">↑</button>
           <button title="다음 변경 (↓)" @click="goto(1)">↓</button>
           <span class="pos">{{ blockCount ? cursor + 1 : 0 }} / {{ blockCount }}</span>
         </div>
 
-        <div class="modes" role="group" aria-label="보기 범위">
+        <div v-if="!single" class="modes" role="group" aria-label="보기 범위">
           <button
             v-for="mode in VIEW_MODES"
             :key="mode.context"
@@ -164,14 +244,39 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
         </button>
 
         <span class="spacer" />
-        <span class="summary">{{ diff?.changes ?? 0 }} differences</span>
+
+        <!-- 파일 안에서 찾기 (Cmd+F) -->
+        <div v-if="findOpen" class="find">
+          <input
+            ref="findInput"
+            v-model="findTerm"
+            class="find-input"
+            type="text"
+            placeholder="이 파일에서 찾기"
+            @keydown.enter.exact.prevent="stepHit(1)"
+            @keydown.enter.shift.prevent="stepHit(-1)"
+            @keydown.esc.prevent="closeFind()"
+          />
+          <span class="find-pos">
+            {{ findTerm ? `${hitCount ? findCursor + 1 : 0} / ${hitCount}` : '' }}
+          </span>
+          <button title="이전 (Shift+Enter)" @click="stepHit(-1)">↑</button>
+          <button title="다음 (Enter)" @click="stepHit(1)">↓</button>
+          <button title="닫기 (Esc)" @click="closeFind()">✕</button>
+        </div>
+        <button v-else class="ctl" title="이 파일에서 찾기 (⌘F)" @click="openFind()">찾기</button>
+
+        <span class="summary">
+          {{ single ? `${diff?.lineCount ?? 0}줄` : `${diff?.changes ?? 0} differences` }}
+        </span>
+        <slot name="actions" />
       </template>
       <span v-else class="path dim">왼쪽에서 파일을 선택하세요</span>
     </header>
 
     <div class="stage">
       <!-- 변경 위치 눈금. 파일 전체 보기에서 어디를 봐야 하는지 알려준다. -->
-      <div v-if="markers.length" class="markers" role="group" aria-label="변경 위치">
+      <div v-if="markers.length && !single" class="markers" role="group" aria-label="변경 위치">
         <button
           v-for="marker in markers"
           :key="marker.blockIndex"
@@ -194,7 +299,8 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
 
         <template v-else>
           <template v-for="item in items" :key="item.key">
-            <div v-if="item.kind === 'hunk'" class="hunk">
+            <div v-if="item.kind === 'hunk' && single" />
+            <div v-else-if="item.kind === 'hunk'" class="hunk">
               @@ -{{ item.hunk.oldStart }},{{ item.hunk.oldLines }} +{{ item.hunk.newStart }},{{
                 item.hunk.newLines
               }} @@
@@ -204,25 +310,40 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
             <div
               v-else
               class="line"
-              :class="`t-${item.row.type}`"
+              :class="[`t-${item.row.type}`, { single }]"
               :data-block="item.blockIndex ?? undefined"
+              :data-line="single ? item.row.right?.num : undefined"
             >
-              <span class="gutter">{{ item.row.left?.num ?? '' }}</span>
-              <span class="code" :class="{ empty: !item.row.left }"
-                ><span
-                  v-for="(span, i) in item.left"
-                  :key="i"
-                  :class="[span.cls && `tk-${span.cls}`, { word: span.changed }]"
-                  >{{ span.text }}</span
-                ></span
-              >
+              <template v-if="!single">
+                <span class="gutter">{{ item.row.left?.num ?? '' }}</span>
+                <span
+                  class="code"
+                  :class="{ empty: !item.row.left }"
+                  :data-hit="item.left?.first ?? undefined"
+                  ><span
+                    v-for="(span, i) in item.left?.spans"
+                    :key="i"
+                    :class="[
+                      span.cls && `tk-${span.cls}`,
+                      { word: span.changed, hit: span.hit },
+                    ]"
+                    >{{ span.text }}</span
+                  ></span
+                >
+              </template>
 
               <span class="gutter">{{ item.row.right?.num ?? '' }}</span>
-              <span class="code" :class="{ empty: !item.row.right }"
+              <span
+                class="code"
+                :class="{ empty: !item.row.right }"
+                :data-hit="item.right?.first ?? undefined"
                 ><span
-                  v-for="(span, i) in item.right"
+                  v-for="(span, i) in item.right?.spans"
                   :key="i"
-                  :class="[span.cls && `tk-${span.cls}`, { word: span.changed }]"
+                  :class="[
+                    span.cls && `tk-${span.cls}`,
+                    { word: span.changed, hit: span.hit },
+                  ]"
                   >{{ span.text }}</span
                 ></span
               >
@@ -425,6 +546,10 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
   display: grid;
   grid-template-columns: 52px minmax(0, 1fr) 52px minmax(0, 1fr);
 }
+/* 파일 하나를 읽는 모드는 한 컬럼이다 */
+.line.single {
+  grid-template-columns: 52px minmax(0, 1fr);
+}
 
 .gutter {
   padding: 0 8px 0 4px;
@@ -469,6 +594,65 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
 .t-mod .code:last-child .word {
   background: var(--diff-add-word);
   box-shadow: inset 0 -1.5px 0 var(--diff-add-line);
+}
+
+/* 찾기 결과. diff 배경색 위에 얹히므로 테두리로 존재를 알린다. */
+.hit {
+  background: #6b5a1e;
+  box-shadow: inset 0 0 0 1px #d4a72c;
+  border-radius: 2px;
+}
+.line[data-hit] {
+  scroll-margin-top: 40px;
+}
+
+/* ⌘⇧F 결과로 뛰어온 줄을 잠깐 알려준다 */
+.line.flash .code {
+  animation: flash 1.2s ease-out;
+}
+@keyframes flash {
+  0%,
+  40% {
+    background: #4a4420;
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+/* --- 찾기 바 --- */
+.find {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.find-input {
+  width: 170px;
+  padding: 2px 7px;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  font: inherit;
+  font-size: 11.5px;
+  outline: none;
+}
+.find-pos {
+  min-width: 46px;
+  text-align: center;
+  color: var(--fg-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.find button {
+  padding: 0 5px;
+  color: var(--fg-dim);
+  border-radius: 3px;
+}
+.find button:hover {
+  background: var(--bg-elevated);
+  color: var(--fg);
 }
 
 /* --- 문법 강조 --- */

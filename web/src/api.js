@@ -66,6 +66,18 @@ export function fetchLog({ limit = 100, skip = 0, ref = null, q = '', in: search
 
 export const fetchRefs = () => request('/api/refs')
 
+// ⌘P / ⌘⇧F 용
+export const fetchFiles = () => request('/api/files')
+export const fetchGrep = (q, { limit = 400 } = {}) =>
+  request(`/api/grep?q=${encodeURIComponent(q)}&limit=${limit}`)
+
+/** 파일 하나를 읽는다(읽기 전용). sha를 주면 그 시점의 내용. */
+export function fetchFile(path, { sha = null } = {}) {
+  const params = new URLSearchParams({ path })
+  if (sha) params.set('sha', sha)
+  return request(`/api/file?${params}`)
+}
+
 export const fetchCommit = (sha) => request(`/api/commit?sha=${encodeURIComponent(sha)}`)
 
 export const stageFile = (path) =>

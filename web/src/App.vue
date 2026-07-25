@@ -1,17 +1,19 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import ChangeList from './components/ChangeList.vue'
 import CommitList from './components/CommitList.vue'
 import DiffViewer from './components/DiffViewer.vue'
+import SearchEverywhere from './components/SearchEverywhere.vue'
+import TabBar from './components/TabBar.vue'
 import { useReview } from './composables/useReview.js'
 import { useHistory } from './composables/useHistory.js'
+import { useTabs } from './composables/useTabs.js'
 import * as api from './api.js'
 
 const repo = ref(null)
 const status = ref({ staged: [], unstaged: [], conflicted: [] })
 const selected = ref(null)
-const diff = ref(null)
 const diffLoading = ref(false)
 const diffError = ref('')
 const fatal = ref('')
@@ -31,7 +33,9 @@ const VIEWS = [
 ]
 const view = ref('changes')
 const history = useHistory()
-const commitFile = ref(null) // 히스토리 탭에서 고른 파일
+const commitFile = ref(null) // 히스토리 화면에서 고른 파일
+const diffViewer = ref(null) // ⌘F를 넘겨주기 위한 참조
+const tabs = useTabs()
 
 // 히스토리 탭을 처음 열 때만 로그와 브랜치 목록을 받는다
 watch(view, async (next) => {
@@ -49,6 +53,66 @@ watch(
 const commitGroups = computed(() => [
   { key: 'commit', title: '', files: history.detail.value?.files ?? [] },
 ])
+
+// --- 통합 검색 (Shift 두 번 / ⌘P / ⌘⇧F)
+const paletteOpen = ref(false)
+const paletteTab = ref('all')
+const fileList = ref([])
+
+async function openPalette(tab = 'all') {
+  paletteTab.value = tab
+  paletteOpen.value = true
+  if (!fileList.value.length) {
+    try {
+      fileList.value = (await api.fetchFiles()).files
+    } catch (err) {
+      diffError.value = err.message
+    }
+  }
+}
+
+/**
+ * 파일 내용을 DiffViewer가 이해하는 모양으로 바꾼다.
+ * 한 컬럼 모드라 오른쪽만 채운다. 이러면 문법 강조·찾기(⌘F)·줄바꿈이 그대로 따라온다.
+ */
+function fileAsDiff(doc) {
+  if (!doc) return null
+  return {
+    language: doc.language,
+    sections: doc.sections,
+    binary: doc.binary,
+    truncated: doc.truncated,
+    lineCount: doc.lineCount,
+    changes: 0,
+    hunks: [
+      {
+        header: '',
+        oldStart: 1,
+        oldLines: 0,
+        newStart: 1,
+        newLines: doc.lines.length,
+        changes: 0,
+        rows: doc.lines.map((text, i) => ({
+          type: 'context',
+          left: null,
+          right: { num: i + 1, text, words: null },
+        })),
+      },
+    ],
+  }
+}
+
+/** ⌘P / ⌘⇧F 결과에서 파일을 열면 새 탭이 된다. */
+function openFile({ path, line = null }) {
+  tabs.open({ kind: 'file', path, line, sub: '읽기 전용' })
+}
+
+/** 검색에서 커밋을 고르면 히스토리 화면으로 옮겨 그 커밋을 띄운다. */
+async function openCommit(sha) {
+  view.value = 'history'
+  if (!history.commits.value.length) await history.init()
+  await history.selectCommit(sha)
+}
 
 const groups = computed(() => [
   { key: 'conflicted', title: '충돌', files: status.value.conflicted },
@@ -70,14 +134,19 @@ async function loadStatus() {
     review.prune(allFiles.value)
     lastSync.value = new Date().toLocaleTimeString('ko-KR', { hour12: false })
 
-    // 선택한 파일이 사라졌으면(커밋/되돌림) 첫 파일로 옮긴다.
+    // 목록에서 사라진 파일의 탭은 닫는다 (커밋했거나 되돌린 경우)
+    tabs.pruneWorktree(
+      new Set(allFiles.value.map((f) => `${f.staged ? 'staged' : 'unstaged'}:${f.path}`)),
+    )
+
+    // 선택한 파일이 사라졌으면 첫 파일로 옮긴다.
     if (selected.value) {
       const still = allFiles.value.find(
         (f) => f.path === selected.value.path && f.staged === selected.value.staged,
       )
-      if (still) selected.value = still
-      else selected.value = allFiles.value[0] ?? null
-    } else {
+      selected.value = still ?? allFiles.value[0] ?? null
+    } else if (!tabs.tabs.value.length) {
+      // 처음 열었을 때만 자동으로 첫 파일을 띄운다. 이미 탭이 있으면 건드리지 않는다.
       selected.value = allFiles.value[0] ?? null
     }
   } catch (err) {
@@ -85,45 +154,91 @@ async function loadStatus() {
   }
 }
 
-// 두 탭이 같은 DiffViewer를 쓴다. 무엇을 보고 있는지는 이 두 값이 정한다.
-const activeFile = computed(() => (view.value === 'history' ? commitFile.value : selected.value))
-const activeSha = computed(() => (view.value === 'history' ? history.selectedSha.value : null))
+// --- 목록에서 고른 것을 탭으로 연다
 
-const diffBadge = computed(() => {
-  if (view.value !== 'history') return ''
-  const sha = history.detail.value?.shortSha
-  return sha ? `커밋 ${sha}` : '커밋'
+/** 좌측 변경 목록에서 파일을 고르면 워킹트리 탭이 열린다. */
+watch(selected, (file) => {
+  if (!file || view.value !== 'changes') return
+  tabs.open({
+    kind: 'worktree',
+    path: file.path,
+    staged: file.staged,
+    untracked: file.untracked,
+    sub: file.staged ? 'staged' : 'working tree',
+  })
 })
 
-async function loadDiff() {
-  const file = activeFile.value
-  const sha = activeSha.value
-  if (!file) {
-    diff.value = null
-    return
-  }
+/** 커밋의 파일을 고르면 커밋 탭이 열린다. */
+watch(commitFile, (file) => {
+  const sha = history.selectedSha.value
+  if (!file || !sha) return
+  tabs.open({
+    kind: 'commit',
+    path: file.path,
+    sha,
+    sub: `커밋 ${history.detail.value?.shortSha ?? ''}`.trim(),
+  })
+})
+
+/**
+ * 지금 보고 있는 탭의 내용을 받는다.
+ *
+ * 이미 받아 둔 것이 있고 낡지 않았으면 다시 받지 않는다 — 탭을 오가는 것이
+ * 매번 요청이 되면 탭의 의미가 없다.
+ */
+async function loadActive() {
+  const tab = tabs.active.value
+  if (!tab) return
+  if (tab.data && !tab.stale) return
+
   diffLoading.value = true
-  diffError.value = ''
+  tab.error = ''
+  const id = tab.id
   try {
-    const result = await api.fetchDiff(file, { context: context.value, sha })
-    // 로딩 중에 다른 파일/커밋으로 옮겼다면 늦게 온 응답은 버린다.
-    if (activeFile.value?.path === file.path && activeSha.value === sha) {
-      diff.value = result
+    const data =
+      tab.kind === 'file'
+        ? fileAsDiff(await api.fetchFile(tab.path))
+        : await api.fetchDiff(
+            { path: tab.path, staged: tab.staged, untracked: tab.untracked },
+            { context: context.value, sha: tab.kind === 'commit' ? tab.sha : null },
+          )
+    // 늦게 온 응답은 그 탭에만 담는다 (그 사이 다른 탭으로 옮겼을 수 있다)
+    const target = tabs.tabs.value.find((t) => t.id === id)
+    if (target) {
+      target.data = data
+      target.stale = false
     }
   } catch (err) {
-    diffError.value = err.message
+    const target = tabs.tabs.value.find((t) => t.id === id)
+    if (target) target.error = err.message
   } finally {
     diffLoading.value = false
   }
+
+  // ⌘⇧F 결과로 열었으면 그 줄로 간다
+  if (tab.line) {
+    await nextTick()
+    diffViewer.value?.scrollToLine(tab.line)
+    tab.line = null
+  }
 }
 
-watch([activeFile, activeSha, context], loadDiff)
+watch(() => tabs.activeId.value, loadActive)
+
+// 컨텍스트(보기 범위)를 바꾸면 diff 탭을 다시 받아야 한다
+watch(context, () => {
+  for (const tab of tabs.tabs.value) {
+    if (tab.kind !== 'file') tab.stale = true
+  }
+  loadActive()
+})
 
 async function act(fn, file) {
   try {
     await fn(file.path)
+    tabs.markStale()
     await loadStatus()
-    await loadDiff()
+    await loadActive()
   } catch (err) {
     diffError.value = err.message
   }
@@ -143,14 +258,15 @@ onMounted(async () => {
     return
   }
   await loadStatus()
-  await loadDiff()
+  await loadActive()
 
   // 파일이 바뀌면 서버가 알려준다. 폴링이 아니라 이 스트림이 갱신의 기준이다.
   stream = api.subscribeChanges({
     onChange: async () => {
       live.value = true
+      tabs.markStale()
       await loadStatus()
-      await loadDiff()
+      await loadActive()
       setTimeout(() => (live.value = false), 600)
     },
     onConnection: (state) => {
@@ -170,16 +286,77 @@ onUnmounted(() => {
 /** 끊긴 뒤 gitshow를 다시 켰을 때. 스트림과 화면 내용을 함께 되살린다. */
 async function reconnect() {
   stream?.reconnect()
+  tabs.markStale()
   await loadStatus()
-  await loadDiff()
+  await loadActive()
 }
 
 /**
  * j/k 로 파일 이동, space 로 확인 토글, Tab 으로 탭 전환.
  * 손이 터미널에 있는 사용자를 가정한다.
  */
+const SHIFT_DOUBLE_TAP_MS = 400
+let lastShiftAt = 0
+
 function onKey(event) {
-  if (event.target.matches('input, select, textarea')) return
+  const meta = event.metaKey || event.ctrlKey
+
+  // Esc는 어디에 포커스가 있든 열린 것을 닫는다
+  if (event.key === 'Escape' && paletteOpen.value) {
+    paletteOpen.value = false
+    return
+  }
+
+  // Shift 두 번 → 통합 검색 (IntelliJ Search Everywhere)
+  if (event.key === 'Shift' && !meta && !event.altKey) {
+    const now = event.timeStamp
+    if (now - lastShiftAt < SHIFT_DOUBLE_TAP_MS) {
+      lastShiftAt = 0
+      openPalette('all')
+      return
+    }
+    lastShiftAt = now
+    return
+  }
+  if (event.key !== 'Shift') lastShiftAt = 0 // 사이에 다른 키가 끼면 무효
+
+  // ⌘/Ctrl 조합은 입력창 안에서도 받는다. 브라우저 기본 동작을 대신한다.
+  if (meta && event.key.toLowerCase() === 'f') {
+    event.preventDefault()
+    if (event.shiftKey) openPalette('text')
+    else diffViewer.value?.openFind()
+    return
+  }
+  if (meta && event.key.toLowerCase() === 'p') {
+    event.preventDefault()
+    openPalette('file')
+    return
+  }
+
+  // ⌥←/→ 로 탭 이동. ⌘⇧[ ] 는 브라우저가 이미 쓴다.
+  if (event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+    event.preventDefault()
+    tabs.step(event.key === 'ArrowRight' ? 1 : -1)
+    return
+  }
+  // ⌥W 로 현재 탭 닫기 (⌘W는 브라우저 창을 닫는다)
+  if (event.altKey && event.key.toLowerCase() === 'w' && tabs.activeId.value) {
+    event.preventDefault()
+    tabs.close(tabs.activeId.value)
+    return
+  }
+
+  // 입력창에서는 j/k 같은 단일 키를 가로채지 않는다.
+  // target이 Element가 아닌 경우(합성 이벤트)도 있어 형을 확인한다.
+  const target = event.target
+  if (target instanceof Element && target.matches('input, select, textarea')) return
+
+  // 읽기 전용으로 열어 둔 파일은 Esc로 닫는다. diff 탭은 Esc로 닫지 않는다 —
+  // 목록에서 고른 것이므로 사용자가 닫으려는 의도로 보기 어렵다.
+  if (event.key === 'Escape' && tabs.active.value?.kind === 'file') {
+    tabs.close(tabs.activeId.value)
+    return
+  }
 
   if (event.key === 'Tab') {
     event.preventDefault()
@@ -319,16 +496,43 @@ function onKey(event) {
       </aside>
 
       <section class="main">
+        <TabBar
+          :tabs="tabs.tabs.value"
+          :active-id="tabs.activeId.value"
+          @activate="tabs.activate($event)"
+          @close="tabs.close($event)"
+          @close-all="tabs.closeAll()"
+        />
+
         <DiffViewer
-          :file="activeFile"
-          :diff="diff"
-          :loading="diffLoading"
-          :error="diffError"
-          :badge="diffBadge"
+          v-if="tabs.active.value"
+          :key="tabs.active.value.id"
+          ref="diffViewer"
+          :single="tabs.active.value.kind === 'file'"
+          :file="tabs.active.value"
+          :diff="tabs.active.value.data"
+          :loading="diffLoading && !tabs.active.value.data"
+          :error="tabs.active.value.error || diffError"
+          :badge="tabs.active.value.sub"
           @update:context="context = $event"
         />
+
+        <div v-else class="empty-main">
+          <p>왼쪽에서 파일을 고르거나 <kbd>⌘P</kbd> 로 파일을 열어보세요.</p>
+          <p class="dim"><kbd>Shift</kbd> <kbd>Shift</kbd> 로 파일·커밋·텍스트를 한 번에 찾습니다.</p>
+        </div>
       </section>
     </main>
+
+    <SearchEverywhere
+      :open="paletteOpen"
+      :tab="paletteTab"
+      :files="fileList"
+      @update:tab="paletteTab = $event"
+      @close="paletteOpen = false"
+      @open-file="openFile($event)"
+      @open-commit="openCommit($event)"
+    />
   </div>
 </template>
 
@@ -505,5 +709,34 @@ function onKey(event) {
 .main {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.empty-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--fg-dim);
+}
+.empty-main .dim {
+  color: var(--fg-faint);
+  font-size: 12px;
+}
+.empty-main p {
+  margin: 0;
+}
+kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  background: var(--bg-elevated);
+  font-family: var(--mono);
+  font-size: 11px;
 }
 </style>
