@@ -9,6 +9,8 @@ const props = defineProps({
   isReviewed: { type: Function, default: () => false },
   // 기준점 이후 바뀌고 아직 확인 안 한 파일 표시
   isFresh: { type: Function, default: () => false },
+  // 파일별 위험 신호: (path) => [{label, count}] | null
+  risksFor: { type: Function, default: () => null },
   title: { type: String, default: 'Changes' },
   countLabel: { type: String, default: 'files' },
 })
@@ -84,6 +86,16 @@ const totalCount = computed(() => props.groups.reduce((n, g) => n + g.files.leng
             />
             <span class="status" :class="`s-${file.status}`">{{ STATUS_CHAR[file.status] ?? '·' }}</span>
             <span v-if="isFresh(file)" class="fresh" title="마지막으로 확인한 뒤에 바뀌었다" />
+            <span
+              v-if="risksFor(file.path)"
+              class="risk"
+              :title="
+                risksFor(file.path)
+                  .map((r) => `${r.label} ${r.count}`)
+                  .join(' · ')
+              "
+              >⚠</span
+            >
             <span class="name">{{ fileName(file.path) }}</span>
             <span class="dir">{{ dirName(file.path) }}</span>
             <span class="stat">
@@ -218,6 +230,14 @@ const totalCount = computed(() => props.groups.reduce((n, g) => n + g.files.leng
 }
 .s-conflicted {
   color: var(--status-conflicted);
+}
+
+/* 사람이 놓치기 쉬운 지점이 있는 파일 */
+.risk {
+  flex: none;
+  font-size: 10px;
+  color: var(--status-conflicted);
+  cursor: help;
 }
 
 /* 마지막으로 확인한 뒤 바뀐 파일 */

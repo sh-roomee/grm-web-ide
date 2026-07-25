@@ -6,8 +6,10 @@ import express from 'express'
 import * as gitApi from './git.js'
 import { parseUnifiedDiff } from './diff.js'
 import { highlightInfo } from './language.js'
+import { analyzeRisks, splitDiffFiles } from './risks.js'
 import {
   readState,
+  saveReviewed,
   addComment,
   updateComment,
   removeComment,
@@ -211,6 +213,39 @@ export function createServer({ repo, token, gitDir, dev = false }) {
         highlightInfo(repo, relPath),
       ])
       res.json({ path: relPath, sha: sha ?? null, ...highlight, ...content })
+    }),
+  )
+
+  /**
+   * AI가 만든 변경에서 사람이 놓치기 쉬운 지점.
+   *
+   * 린터가 아니라 "여기 한 번 보라"는 표시다. 판정을 내리지 않고 개수와 예시만 준다.
+   */
+  app.get(
+    '/api/risks',
+    wrap(async (_req, res) => {
+      const raw = await gitApi.worktreeDiff(repo, gitDir)
+      res.json(analyzeRisks(splitDiffFiles(raw)))
+    }),
+  )
+
+  /**
+   * "확인함" 표시. 브라우저 localStorage에 두면 grmide가 다른 포트로 뜰 때
+   * (4317이 사용 중일 때) 다른 origin이 되어 진행률이 초기화된다.
+   */
+  app.get(
+    '/api/reviewed',
+    wrap(async (_req, res) => {
+      const state = await readState(gitDir)
+      res.json({ marks: state.reviewed })
+    }),
+  )
+
+  app.put(
+    '/api/reviewed',
+    wrap(async (req, res) => {
+      const marks = await saveReviewed(gitDir, req.body?.marks)
+      res.json({ marks })
     }),
   )
 

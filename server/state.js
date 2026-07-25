@@ -4,7 +4,7 @@ import path from 'node:path'
 /**
  * grmide가 저장소별로 들고 있어야 하는 상태.
  *
- * 지금은 리뷰 코멘트를 담는다. 코멘트는 "이 줄 왜 이렇게 했어?"를 적어 두고
+ * 리뷰 코멘트와 "확인함" 표시를 담는다. 코멘트는 "이 줄 왜 이렇게 했어?"를 적어 두고
  * AI에게 넘기기 위한 것이므로, 새로고침이나 grmide 재시작에 사라지면 안 된다.
  *
  * 왜 `.git` 안인가:
@@ -20,7 +20,7 @@ const FILE_NAME = 'grmide-state.json'
 const LEGACY_FILE_NAME = 'gitshow-state.json'
 const MAX_COMMENTS = 500
 
-const emptyState = () => ({ version: 1, comments: [] })
+const emptyState = () => ({ version: 1, comments: [], reviewed: {} })
 
 function statePath(gitDir) {
   return path.join(gitDir, FILE_NAME)
@@ -47,7 +47,12 @@ export async function readState(gitDir) {
   try {
     const raw = await fs.readFile(statePath(gitDir), 'utf8')
     const parsed = JSON.parse(raw)
-    return { ...emptyState(), ...parsed, comments: parsed.comments ?? [] }
+    return {
+      ...emptyState(),
+      ...parsed,
+      comments: parsed.comments ?? [],
+      reviewed: parsed.reviewed ?? {},
+    }
   } catch {
     // 없거나 깨졌으면 빈 상태로 시작한다. 리뷰 메모 때문에 도구가 멈추면 안 된다.
     return emptyState()
@@ -112,6 +117,19 @@ export async function clearComments(gitDir) {
   const state = await readState(gitDir)
   state.comments = []
   await writeState(gitDir, state)
+}
+
+/**
+ * "확인함" 표시를 통째로 갈아 끼운다.
+ *
+ * 항목별 API로 쪼개지 않는 이유: 토글·전체 확인·정리(prune)가 모두 맵 전체를
+ * 다시 쓰는 동작이고, 크기도 파일 수만큼(수십 개)이라 통째로 보내는 편이 단순하다.
+ */
+export async function saveReviewed(gitDir, marks) {
+  const state = await readState(gitDir)
+  state.reviewed = marks && typeof marks === 'object' ? marks : {}
+  await writeState(gitDir, state)
+  return state.reviewed
 }
 
 /**

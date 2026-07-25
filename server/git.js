@@ -401,6 +401,21 @@ export async function changedSinceBaseline(repo, gitDir, baseTree) {
   return new Set(raw.split('\0').filter(Boolean))
 }
 
+/**
+ * 워킹트리 전체의 변경을 한 번에 받는다. 위험 신호 분석에 쓴다.
+ *
+ * 파일마다 `git diff`를 돌리면 44개 파일에 44번 프로세스를 띄운다. 기준점이 쓰는
+ * 임시 index를 그대로 재사용해 `add -A` → `diff HEAD --cached` 로 한 번에 받는다.
+ * 이러면 추적되지 않은 새 파일의 내용도 함께 들어온다.
+ *
+ * `-U0`: 컨텍스트 줄은 필요 없다. 추가·삭제된 줄만 본다.
+ */
+export async function worktreeDiff(repo, gitDir) {
+  const env = { GIT_INDEX_FILE: path.join(gitDir, 'grmide-index') }
+  await git(repo, ['add', '-A'], { env })
+  return git(repo, ['diff', '--no-color', '-U0', '--cached', 'HEAD'], { env, allowFail: true })
+}
+
 /** 기준점 이후 이 파일이 어떻게 바뀌었는지. */
 export async function baselineFileDiff(repo, gitDir, relPath, { context = 3 } = {}) {
   const base = await getBaseline(repo)

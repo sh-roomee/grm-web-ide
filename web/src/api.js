@@ -40,6 +40,9 @@ async function request(path, options = {}) {
 export const fetchRepo = () => request('/api/repo')
 export const fetchStatus = () => request('/api/status')
 
+/** AI 변경에서 사람이 놓치기 쉬운 지점 */
+export const fetchRisks = () => request('/api/risks')
+
 /**
  * @param file {path, staged?, untracked?}
  * @param opts.sha 커밋 해시. 주면 워킹트리가 아니라 그 커밋 안의 변경을 본다.
@@ -58,6 +61,11 @@ export function fetchDiff(file, { context = 3, sha = null, base = false } = {}) 
 // 기준점 — "여기까지 봤다"
 export const setBaseline = () => request('/api/baseline', { method: 'POST', body: '{}' })
 export const clearBaseline = () => request('/api/baseline', { method: 'DELETE' })
+
+// "확인함" 표시 — 서버에 둔다 (포트가 바뀌면 localStorage는 잃는다)
+export const fetchReviewed = () => request('/api/reviewed')
+export const saveReviewed = (marks) =>
+  request('/api/reviewed', { method: 'PUT', body: JSON.stringify({ marks }) })
 
 // 리뷰 코멘트 — 사람의 판단을 AI에게 되돌리는 경로
 export const fetchComments = () => request('/api/comments')

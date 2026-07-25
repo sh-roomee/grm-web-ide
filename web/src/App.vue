@@ -21,6 +21,10 @@ const diffLoading = ref(false)
 const baseline = ref(null) // { tree, freshCount }
 const freshOnly = ref(false) // 좌측 목록을 새 변경만으로 좁힌다
 const compareBase = ref(false) // diff를 HEAD 대신 기준점 대비로 본다
+
+// --- 위험 신호: AI가 조용히 지운 것들
+const risks = ref({ files: {}, total: 0, fileCount: 0 })
+const riskOnly = ref(false) // 좌측 목록을 위험 신호가 있는 파일로 좁힌다
 const diffError = ref('')
 const fatal = ref('')
 const context = ref(3)
@@ -158,8 +162,25 @@ function isFresh(file) {
   return Boolean(file.fresh) && !review.isReviewed(file)
 }
 
+/** 이 파일의 위험 신호. 없으면 null. */
+const risksFor = (path) => risks.value.files[path] ?? null
+
+async function loadRisks() {
+  try {
+    risks.value = await api.fetchRisks()
+  } catch (err) {
+    // 위험 신호는 부가 정보다. 실패해도 화면이 멈추지 않게 한다.
+    console.error('[grmide] 위험 신호를 받지 못했습니다:', err.message)
+  }
+}
+
 const groups = computed(() => {
-  const keep = (files) => (freshOnly.value ? files.filter(isFresh) : files)
+  const keep = (files) => {
+    let out = files
+    if (freshOnly.value) out = out.filter(isFresh)
+    if (riskOnly.value) out = out.filter((f) => risksFor(f.path))
+    return out
+  }
   return [
     { key: 'conflicted', title: '충돌', files: keep(status.value.conflicted) },
     { key: 'staged', title: 'Staged', files: keep(status.value.staged) },
@@ -385,7 +406,8 @@ onMounted(async () => {
     fatal.value = err.message
     return
   }
-  await loadStatus()
+  await review.load() // status보다 먼저 — 진행률이 0으로 잠깐 보이지 않게
+  await Promise.all([loadStatus(), loadRisks()])
   await loadActive()
   await comments.load()
 
@@ -394,7 +416,7 @@ onMounted(async () => {
     onChange: async () => {
       live.value = true
       tabs.markStale()
-      await loadStatus()
+      await Promise.all([loadStatus(), loadRisks()])
       await loadActive()
       setTimeout(() => (live.value = false), 600)
     },
@@ -579,6 +601,16 @@ function onKey(event) {
         </span>
 
         <button
+          v-if="risks.fileCount"
+          class="risk-badge"
+          :class="{ on: riskOnly }"
+          :title="`놓치기 쉬운 지점이 ${risks.fileCount}개 파일에 ${risks.total}건. 누르면 그 파일만 본다`"
+          @click="riskOnly = !riskOnly"
+        >
+          ⚠ {{ risks.fileCount }}
+        </button>
+
+        <button
           class="mark-btn"
           :title="
             baseline
@@ -611,6 +643,7 @@ function onKey(event) {
           :selected="selected"
           :is-reviewed="review.isReviewed"
           :is-fresh="isFresh"
+          :risks-for="risksFor"
           @select="selected = $event"
           @toggle-review="review.toggle($event)"
           @review-all="review.markAll($event.files, true)"
@@ -694,6 +727,7 @@ function onKey(event) {
           :can-compare-base="Boolean(baseline) && tabs.active.value.kind === 'worktree'"
           :compare-base="compareBase"
           :comments-for="commentsForActive"
+          :risks="risksFor(tabs.active.value.path) ?? []"
           @update:context="context = $event"
           @update:compare-base="compareBase = $event"
           @comment="addComment($event)"
@@ -782,6 +816,22 @@ function onKey(event) {
 .progress {
   flex: none;
   color: var(--fg-dim);
+}
+
+/* 위험 신호 */
+.risk-badge {
+  flex: none;
+  padding: 1px 8px;
+  background: #4a3f1c;
+  color: #e8c88a;
+  border: 1px solid #7a6526;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.risk-badge.on {
+  background: #7a6526;
+  color: #fff;
 }
 
 /* 기준점 */

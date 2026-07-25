@@ -264,6 +264,54 @@ ASCII 그림 대신 숫자로 내보내고, 그림은 클라이언트가 SVG로 
 - ref에 매달아 두므로 `git gc`에도 살아남고 grmide를 다시 켜도 유지된다.
 - `refs/grmide/*`는 `--all`에 포함되지 않아 히스토리 그래프를 오염시키지 않는다.
 
+## GET /api/risks
+
+AI가 만든 변경에서 **사람이 놓치기 쉬운 지점**. 린터가 아니라 "여기 한 번 보라"는
+표시이므로 판정을 내리지 않고 개수와 예시만 준다.
+
+```json
+{
+  "files": {
+    "src/api.js": [
+      { "kind": "error-handling-removed", "label": "사라진 에러 처리", "count": 3,
+        "samples": ["try {", "} catch (err) {", "throw new Error('실패')"] },
+      { "kind": "debug-added", "label": "남은 디버그 출력", "count": 1,
+        "samples": ["console.log(\"fetchUser 호출됨\", id)"] }
+    ]
+  },
+  "total": 5,
+  "fileCount": 4
+}
+```
+
+| `kind` | 무엇을 보는가 |
+| --- | --- |
+| `test-removed` | 테스트 파일에서 사라진 `it`/`test`/`assert` 줄 |
+| `error-handling-removed` | 사라진 `try`/`catch`/`throw`/`.catch(`. 추가된 쪽에 같은 모양이 있으면 옮긴 것으로 보고 그만큼 뺀다 |
+| `debug-added` | 새로 들어온 `console.log`/`debugger`/`print(`. 테스트 파일은 제외 |
+| `dependency` | `package.json`·lock 파일 변경 |
+| `large-deletion` | 30줄 이상 지워지고 추가가 그 1/4 미만 |
+
+위험이 없는 파일은 `files`에 넣지 않는다.
+
+**한 번의 git 호출로 전체를 받는다.** 파일마다 `git diff`를 돌리면 44개 파일에 44번
+프로세스를 띄운다. 기준점이 쓰는 임시 index를 재사용해 `add -A` → `diff HEAD --cached -U0`
+로 한 번에 받으므로 추적되지 않은 새 파일도 함께 들어온다.
+
+## GET /api/reviewed · PUT /api/reviewed
+
+파일별 "확인함" 표시. `{ "marks": { "work:src/api.js": "modified:3:8" } }`
+
+키는 `staged|work:<경로>`, 값은 변경 규모 지문(`status:추가:삭제`)이다. 그 파일이
+다시 바뀌면 지문이 달라져 확인 상태가 자동으로 풀린다.
+
+PUT은 맵을 통째로 갈아 끼운다 — 토글·전체 확인·정리가 모두 맵 전체를 다시 쓰는
+동작이고 크기도 파일 수만큼이라 통째로 보내는 편이 단순하다.
+
+**왜 서버인가**: 브라우저 localStorage에 두었더니 grmide가 다른 포트로 뜰 때
+(4317이 사용 중일 때) 다른 origin이 되어 진행률이 통째로 사라졌다. 저장소에 붙은
+상태이므로 저장소 옆(`<git-dir>/grmide-state.json`)에 둔다.
+
 ## 리뷰 코멘트
 
 사람의 판단을 AI에게 되돌리는 경로. 저장 위치는 `<git-dir>/grmide-state.json`이다.

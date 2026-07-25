@@ -17,6 +17,8 @@ const props = defineProps({
   compareBase: { type: Boolean, default: false },
   // 줄별 리뷰 코멘트: (path, side, line) => 코멘트 배열 | null
   commentsFor: { type: Function, default: () => null },
+  // 지금 파일의 위험 신호 [{ kind, label, count, samples }]
+  risks: { type: Array, default: () => [] },
 })
 
 const emit = defineEmits(['update:context', 'update:compareBase', 'comment', 'delete-comment'])
@@ -406,6 +408,15 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
       <span v-else class="path dim">왼쪽에서 파일을 선택하세요</span>
     </header>
 
+    <!-- 사람이 놓치기 쉬운 지점. 판정이 아니라 "여기 한 번 보라"는 표시다. -->
+    <div v-if="risks.length" class="risk-strip">
+      <span class="risk-icon">⚠</span>
+      <span v-for="risk in risks" :key="risk.kind" class="risk-item" :title="risk.samples.join('\n')">
+        {{ risk.label }}
+        <strong>{{ risk.count }}</strong>
+      </span>
+    </div>
+
     <div class="stage">
       <!-- 변경 위치 눈금. 파일 전체 보기에서 어디를 봐야 하는지 알려준다. -->
       <div v-if="markers.length && !single" class="markers" role="group" aria-label="변경 위치">
@@ -655,6 +666,31 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
 }
 .mode.on {
   background: #35548c;
+  color: #fff;
+}
+
+/* 위험 신호 띠 */
+.risk-strip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 12px;
+  background: #33302a;
+  border-bottom: 1px solid var(--border);
+  font-size: 11.5px;
+  color: var(--status-conflicted);
+  overflow-x: auto;
+}
+.risk-icon {
+  flex: none;
+}
+.risk-item {
+  flex: none;
+  cursor: help;
+  white-space: nowrap;
+}
+.risk-item strong {
   color: #fff;
 }
 
