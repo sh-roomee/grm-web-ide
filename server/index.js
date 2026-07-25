@@ -52,7 +52,7 @@ function clamp(value, min, max, fallback) {
   return Math.min(max, Math.max(min, value))
 }
 
-export function createServer({ repo, token, dev = false }) {
+export function createServer({ repo, token, gitDir, dev = false }) {
   const app = express()
   app.use(express.json({ limit: '1mb' }))
   app.disable('x-powered-by')
@@ -85,7 +85,49 @@ export function createServer({ repo, token, dev = false }) {
   app.get(
     '/api/status',
     wrap(async (_req, res) => {
-      res.json(await gitApi.status(repo))
+      const [status, baseline] = await Promise.all([gitApi.status(repo), gitApi.getBaseline(repo)])
+
+      // 기준점이 없으면 비교 비용을 아예 치르지 않는다
+      let fresh = null
+      if (baseline) {
+        try {
+          fresh = await gitApi.changedSinceBaseline(repo, gitDir, baseline)
+        } catch (err) {
+          console.error('[gitshow] 기준점 비교 실패:', err.message)
+        }
+      }
+
+      // 기준점 이후 바뀐 파일에 표시를 남긴다
+      let freshCount = 0
+      if (fresh) {
+        const seen = new Set()
+        for (const list of [status.conflicted, status.staged, status.unstaged]) {
+          for (const file of list) {
+            file.fresh = fresh.has(file.path)
+            if (file.fresh && !seen.has(file.path)) {
+              seen.add(file.path)
+              freshCount += 1
+            }
+          }
+        }
+      }
+
+      res.json({ ...status, baseline: baseline ? { tree: baseline, freshCount } : null })
+    }),
+  )
+
+  app.post(
+    '/api/baseline',
+    wrap(async (_req, res) => {
+      res.json({ tree: await gitApi.setBaseline(repo, gitDir) })
+    }),
+  )
+
+  app.delete(
+    '/api/baseline',
+    wrap(async (_req, res) => {
+      await gitApi.clearBaseline(repo)
+      res.json({ ok: true })
     }),
   )
 
@@ -98,16 +140,27 @@ export function createServer({ repo, token, dev = false }) {
       const untracked = req.query.untracked === '1' || req.query.untracked === 'true'
       const context = Number.parseInt(req.query.context ?? '3', 10)
       const sha = validSha(req.query.sha)
+      // base=1 이면 HEAD가 아니라 기준점(마지막으로 확인한 시점) 대비로 본다
+      const base = req.query.base === '1' || req.query.base === 'true'
 
       const [raw, highlight] = await Promise.all([
-        // sha가 있으면 워킹트리가 아니라 그 커밋 안의 변경을 본다
         sha
           ? gitApi.commitFileDiff(repo, sha, relPath, { context })
-          : gitApi.fileDiff(repo, relPath, { staged, untracked, context }),
+          : base
+            ? gitApi.baselineFileDiff(repo, gitDir, relPath, { context })
+            : gitApi.fileDiff(repo, relPath, { staged, untracked, context }),
         highlightInfo(repo, relPath),
       ])
       const parsed = parseUnifiedDiff(raw)
-      res.json({ path: relPath, staged, untracked, sha: sha ?? null, ...highlight, ...parsed })
+      res.json({
+        path: relPath,
+        staged,
+        untracked,
+        sha: sha ?? null,
+        base,
+        ...highlight,
+        ...parsed,
+      })
     }),
   )
 

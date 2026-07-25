@@ -57,10 +57,17 @@ x-gitshow-token: <토큰>
       "deletions": 0
     }
   ],
-  "conflicted": []
+  "conflicted": [],
+  "baseline": { "tree": "32ba7d6e…", "freshCount": 2 }
 }
 ```
 
+- `baseline`은 기준점("마지막으로 확인한 시점")이 잡혀 있을 때만 채워진다.
+  이때 각 파일에 `fresh: true|false`가 붙는다 — 기준점 이후 바뀌었는지다.
+  기준점이 없으면 `baseline`은 `null`이고 비교 비용도 치르지 않는다.
+- `freshCount`는 경로 기준 개수다. 화면에 보이는 "새 변경 N"은 여기서 **확인
+  체크가 있는 파일을 뺀** 수다 — 개별 확인을 눌러도 표시가 남으면 안 되므로,
+  "새 변경 = 기준점 이후 바뀜 AND 아직 확인 안 함"으로 정의한다.
 - 한 파일이 `staged`와 `unstaged`에 **동시에** 나올 수 있다 (일부만 stage된 경우).
   따라서 클라이언트의 식별 키는 `path`가 아니라 `staged + path`다.
 - `status`: `modified` `added` `deleted` `renamed` `copied` `typechange`
@@ -76,6 +83,7 @@ x-gitshow-token: <토큰>
 | `staged` | | `1`이면 `--cached` diff |
 | `untracked` | | `1`이면 `--no-index`로 `/dev/null`과 비교 |
 | `context` | | 컨텍스트 줄 수 = `git diff -U<n>` (기본 3). 화면의 "파일 전체"는 100000이며 파일 전체가 한 훅으로 온다 |
+| `base` | | `1`이면 HEAD가 아니라 **기준점 대비**로 본다. 이미 확인한 변경은 컨텍스트로 내려가고 새로 바뀐 것만 변경으로 뜬다 |
 | `sha` | | 커밋 해시. 주면 워킹트리가 아니라 **그 커밋 안의 변경**을 본다. 이때 `staged`·`untracked`는 무시된다 |
 
 `sha`는 `[0-9a-f]{4,40}` 만 통과한다. `HEAD~3`이나 `main..x` 같은 리비전 표현은
@@ -239,6 +247,22 @@ ASCII 그림 대신 숫자로 내보내고, 그림은 클라이언트가 SVG로 
 - `parentLanes` 중 자기 레인이 아닌 것 → 아래로 **갈라지는** 선
 
 `refs`의 `type`은 `head`(현재 브랜치) · `branch` · `remote` · `tag`.
+
+## POST /api/baseline · DELETE /api/baseline
+
+"내가 마지막으로 확인한 시점"을 잡거나 해제한다.
+
+```json
+{ "tree": "32ba7d6e7758839e71cac492b336477e264c1521" }
+```
+
+지금 워킹트리를 트리 객체로 굳혀 `refs/gitshow/baseline`에 매단다.
+
+- 사용자 index를 건드리지 않기 위해 별도 index 파일(`.git/gitshow-index`)로
+  `git add -A` → `git write-tree` 한다. 그 파일을 재사용하는 이유는 git의 stat
+  캐시다 — 빈 index로 시작하면 저장소 전체를 다시 해시한다.
+- ref에 매달아 두므로 `git gc`에도 살아남고 gitshow를 다시 켜도 유지된다.
+- `refs/gitshow/*`는 `--all`에 포함되지 않아 히스토리 그래프를 오염시키지 않는다.
 
 ## GET /api/files
 

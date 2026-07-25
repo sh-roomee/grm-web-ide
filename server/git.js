@@ -22,12 +22,13 @@ const MAX_BUFFER = 64 * 1024 * 1024
  * git 명령을 실행한다. 사용자 입력은 항상 인자 배열로만 전달되며
  * 셸을 거치지 않으므로 경로에 공백/특수문자가 있어도 안전하다.
  */
-export async function git(cwd, args, { allowFail = false } = {}) {
+export async function git(cwd, args, { allowFail = false, env = null } = {}) {
   try {
     const { stdout } = await execFileAsync('git', args, {
       cwd,
       maxBuffer: MAX_BUFFER,
       windowsHide: true,
+      ...(env ? { env: { ...process.env, ...env } } : {}),
     })
     return stdout
   } catch (err) {
@@ -321,6 +322,83 @@ export async function commitFileDiff(repo, sha, path, { context = 3 } = {}) {
     return git(repo, ['diff', '--no-color', ctx, `${sha}^1`, sha, '--', path], { allowFail: true })
   }
   return git(repo, ['show', '--no-color', ctx, '--format=', sha, '--', path], { allowFail: true })
+}
+
+// ---------------------------------------------------------------------------
+// 기준점 (baseline) — "내가 마지막으로 확인한 시점"
+//
+// git에는 HEAD와 index만 있고 "리뷰 시점"이라는 개념이 없다. AI가 계속 고치는
+// 동안 `git diff`는 매번 전체를 다시 보여주고, 이미 본 40개 파일과 새로 바뀐
+// 3개가 구분되지 않는다.
+//
+// 그래서 현재 워킹트리를 트리 객체로 굳혀 ref에 매달아 둔다. 그 뒤로는
+// "기준점 트리 vs 지금 워킹트리"를 비교하면 새로 바뀐 것만 나온다.
+// ---------------------------------------------------------------------------
+
+const BASELINE_REF = 'refs/gitshow/baseline'
+
+/**
+ * 워킹트리 전체를 트리 객체로 만든다.
+ *
+ * 사용자의 index를 건드리면 안 되므로 별도 index 파일을 쓴다. 매번 새로 만들지
+ * 않고 `.git` 안에 두고 재사용하는 이유는 git의 stat 캐시다 — 빈 index로
+ * 시작하면 저장소 전체를 다시 해시한다.
+ *
+ * `git add -A`라서 untracked 파일도 담기고 `.gitignore`는 지켜진다.
+ */
+async function currentTree(repo, gitDir) {
+  const env = { GIT_INDEX_FILE: path.join(gitDir, 'gitshow-index') }
+  await git(repo, ['add', '-A'], { env })
+  return (await git(repo, ['write-tree'], { env })).trim()
+}
+
+export async function resolveGitDir(repo) {
+  return (await git(repo, ['rev-parse', '--absolute-git-dir'])).trim()
+}
+
+/** 지금 상태를 기준점으로 잡는다. ref에 매달아 두므로 gc에도 살아남는다. */
+export async function setBaseline(repo, gitDir) {
+  const tree = await currentTree(repo, gitDir)
+  await git(repo, ['update-ref', BASELINE_REF, tree])
+  return tree
+}
+
+export async function getBaseline(repo) {
+  const out = await git(repo, ['rev-parse', '--verify', '--quiet', BASELINE_REF], {
+    allowFail: true,
+  })
+  return out.trim() || null
+}
+
+export async function clearBaseline(repo) {
+  await git(repo, ['update-ref', '-d', BASELINE_REF], { allowFail: true })
+}
+
+/**
+ * 기준점 이후 바뀐 파일 경로.
+ *
+ * `git diff <tree>`로는 untracked 파일이 빠진다(index에 없는 경로는 비교 대상이
+ * 아니다). 그래서 지금 워킹트리도 트리로 만들어 트리끼리 비교한다.
+ */
+export async function changedSinceBaseline(repo, gitDir, baseTree) {
+  if (!baseTree) return null
+  const cur = await currentTree(repo, gitDir)
+  if (cur === baseTree) return new Set()
+  const raw = await git(repo, ['diff-tree', '-r', '--name-only', '-z', baseTree, cur], {
+    allowFail: true,
+  })
+  return new Set(raw.split('\0').filter(Boolean))
+}
+
+/** 기준점 이후 이 파일이 어떻게 바뀌었는지. */
+export async function baselineFileDiff(repo, gitDir, relPath, { context = 3 } = {}) {
+  const base = await getBaseline(repo)
+  if (!base) return ''
+  const cur = await currentTree(repo, gitDir)
+  const ctx = `-U${Number.isInteger(context) ? context : 3}`
+  return git(repo, ['diff-tree', '-p', '--no-color', ctx, base, cur, '--', relPath], {
+    allowFail: true,
+  })
 }
 
 /**

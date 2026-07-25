@@ -7,6 +7,8 @@ const props = defineProps({
   // 커밋 파일 목록으로도 쓴다. 그때는 확인 체크와 stage 동작이 의미가 없다.
   readonly: { type: Boolean, default: false },
   isReviewed: { type: Function, default: () => false },
+  // 기준점 이후 바뀌고 아직 확인 안 한 파일 표시
+  isFresh: { type: Function, default: () => false },
   title: { type: String, default: 'Changes' },
   countLabel: { type: String, default: 'files' },
 })
@@ -60,7 +62,7 @@ const totalCount = computed(() => props.groups.reduce((n, g) => n + g.files.leng
               title="이 그룹 전체를 확인함으로 표시"
               @click="emit('review-all', group)"
             >
-              전체 확인
+              그룹 확인
             </button>
           </div>
 
@@ -81,6 +83,7 @@ const totalCount = computed(() => props.groups.reduce((n, g) => n + g.files.leng
               @change="emit('toggle-review', file)"
             />
             <span class="status" :class="`s-${file.status}`">{{ STATUS_CHAR[file.status] ?? '·' }}</span>
+            <span v-if="isFresh(file)" class="fresh" title="마지막으로 확인한 뒤에 바뀌었다" />
             <span class="name">{{ fileName(file.path) }}</span>
             <span class="dir">{{ dirName(file.path) }}</span>
             <span class="stat">
@@ -215,6 +218,16 @@ const totalCount = computed(() => props.groups.reduce((n, g) => n + g.files.leng
 }
 .s-conflicted {
   color: var(--status-conflicted);
+}
+
+/* 마지막으로 확인한 뒤 바뀐 파일 */
+.fresh {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #e8c88a;
+  margin-left: -2px;
 }
 
 .name {

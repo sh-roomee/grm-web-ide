@@ -44,15 +44,20 @@ export const fetchStatus = () => request('/api/status')
  * @param file {path, staged?, untracked?}
  * @param opts.sha 커밋 해시. 주면 워킹트리가 아니라 그 커밋 안의 변경을 본다.
  */
-export function fetchDiff(file, { context = 3, sha = null } = {}) {
+export function fetchDiff(file, { context = 3, sha = null, base = false } = {}) {
   const params = new URLSearchParams({ path: file.path, context: String(context) })
   if (sha) params.set('sha', sha)
+  else if (base) params.set('base', '1')
   else {
     if (file.staged) params.set('staged', '1')
     if (file.untracked) params.set('untracked', '1')
   }
   return request(`/api/diff?${params}`)
 }
+
+// 기준점 — "여기까지 봤다"
+export const setBaseline = () => request('/api/baseline', { method: 'POST', body: '{}' })
+export const clearBaseline = () => request('/api/baseline', { method: 'DELETE' })
 
 export function fetchLog({ limit = 100, skip = 0, ref = null, q = '', in: searchIn = 'message' } = {}) {
   const params = new URLSearchParams({ limit: String(limit), skip: String(skip) })

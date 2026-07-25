@@ -89,6 +89,13 @@ test('빈 diff와 바이너리 diff를 구분한다', () => {
   assert.equal(bin.binary, true)
 })
 
+test('빈 diff도 같은 모양을 돌려준다 (필드가 빠지지 않는다)', () => {
+  const full = parseUnifiedDiff('--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n')
+  const empty = parseUnifiedDiff('')
+  assert.deepEqual(Object.keys(empty).sort(), Object.keys(full).sort())
+  assert.equal(empty.changes, 0)
+})
+
 test('삭제된 행 번호와 추가된 행 번호가 각각 증가한다', () => {
   const raw = `--- a/x
 +++ b/x

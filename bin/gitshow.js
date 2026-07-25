@@ -4,7 +4,7 @@ import crypto from 'node:crypto'
 import process from 'node:process'
 
 import { createServer } from '../server/index.js'
-import { resolveRepoRoot, currentBranch, headCommit, status } from '../server/git.js'
+import { resolveRepoRoot, resolveGitDir, currentBranch, headCommit, status } from '../server/git.js'
 import { renderSummary } from './summary.js'
 
 const DEFAULT_PORT = 4317
@@ -79,7 +79,8 @@ async function main() {
 
   const dev = process.env.GITSHOW_DEV === '1'
   const token = process.env.GITSHOW_TOKEN || crypto.randomBytes(16).toString('hex')
-  const { app, close } = createServer({ repo, token, dev })
+  const gitDir = await resolveGitDir(repo)
+  const { app, close } = createServer({ repo, token, gitDir, dev })
   const server = await listen(app, opts.port, PORT_TRIES)
   const { port } = server.address()
 

@@ -90,7 +90,16 @@ function pairBlock(dels, adds, rows) {
  * @returns {{binary:boolean, truncated:boolean, hunks:Array, oldPath:string|null, newPath:string|null}}
  */
 export function parseUnifiedDiff(raw) {
-  const result = { binary: false, truncated: false, oldPath: null, newPath: null, hunks: [] }
+  // changes를 여기서 함께 초기화한다. 빈 diff에서 이 필드가 빠지면
+  // 응답 모양이 달라져 클라이언트가 undefined를 만난다.
+  const result = {
+    binary: false,
+    truncated: false,
+    oldPath: null,
+    newPath: null,
+    changes: 0,
+    hunks: [],
+  }
   if (!raw) return result
 
   const lines = raw.split('\n')

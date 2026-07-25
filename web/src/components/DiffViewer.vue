@@ -12,9 +12,12 @@ const props = defineProps({
   badge: { type: String, default: '' },
   // 파일 하나를 그냥 읽는 모드(⌘P로 열었을 때). diff가 아니라 한 컬럼이다.
   single: { type: Boolean, default: false },
+  // 기준점 대비로 볼 수 있는 상태인지 (기준점이 있고 워킹트리 diff일 때만)
+  canCompareBase: { type: Boolean, default: false },
+  compareBase: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['update:context'])
+const emit = defineEmits(['update:context', 'update:compareBase'])
 
 const wrap = ref(false)
 const scroller = ref(null)
@@ -224,6 +227,26 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
           <button title="이전 변경 (↑)" @click="goto(-1)">↑</button>
           <button title="다음 변경 (↓)" @click="goto(1)">↓</button>
           <span class="pos">{{ blockCount ? cursor + 1 : 0 }} / {{ blockCount }}</span>
+        </div>
+
+        <!-- 비교 대상: HEAD 대비 / 기준점 대비 -->
+        <div v-if="canCompareBase" class="modes" role="group" aria-label="비교 대상">
+          <button
+            class="mode"
+            :class="{ on: !compareBase }"
+            title="커밋된 상태(HEAD)와 비교"
+            @click="emit('update:compareBase', false)"
+          >
+            HEAD 대비
+          </button>
+          <button
+            class="mode"
+            :class="{ on: compareBase }"
+            title="마지막으로 확인한 시점과 비교 — 새로 바뀐 것만 보인다"
+            @click="emit('update:compareBase', true)"
+          >
+            기준점 대비
+          </button>
         </div>
 
         <div v-if="!single" class="modes" role="group" aria-label="보기 범위">

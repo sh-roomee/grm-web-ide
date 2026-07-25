@@ -15,6 +15,11 @@ const repo = ref(null)
 const status = ref({ staged: [], unstaged: [], conflicted: [] })
 const selected = ref(null)
 const diffLoading = ref(false)
+
+// --- 기준점: "내가 마지막으로 확인한 시점" 이후 바뀐 것만 보기
+const baseline = ref(null) // { tree, freshCount }
+const freshOnly = ref(false) // 좌측 목록을 새 변경만으로 좁힌다
+const compareBase = ref(false) // diff를 HEAD 대신 기준점 대비로 본다
 const diffError = ref('')
 const fatal = ref('')
 const context = ref(3)
@@ -114,13 +119,83 @@ async function openCommit(sha) {
   await history.selectCommit(sha)
 }
 
-const groups = computed(() => [
-  { key: 'conflicted', title: '충돌', files: status.value.conflicted },
-  { key: 'staged', title: 'Staged', files: status.value.staged },
-  { key: 'unstaged', title: 'Changes', files: status.value.unstaged },
+/**
+ * 아직 확인하지 않은 새 변경인가.
+ *
+ * 기준점만으로 정하면 개별 확인을 눌러도 표시가 남는다. 그래서 두 조건을 함께
+ * 본다: 기준점 이후 바뀌었고(서버가 알려준다), 아직 확인 체크가 없다.
+ */
+function isFresh(file) {
+  return Boolean(file.fresh) && !review.isReviewed(file)
+}
+
+const groups = computed(() => {
+  const keep = (files) => (freshOnly.value ? files.filter(isFresh) : files)
+  return [
+    { key: 'conflicted', title: '충돌', files: keep(status.value.conflicted) },
+    { key: 'staged', title: 'Staged', files: keep(status.value.staged) },
+    { key: 'unstaged', title: 'Changes', files: keep(status.value.unstaged) },
+  ]
+})
+
+/** 필터와 무관한 전체 목록. 진행률과 탭 정리에 쓴다. */
+const allFiles = computed(() => [
+  ...status.value.conflicted,
+  ...status.value.staged,
+  ...status.value.unstaged,
 ])
 
-const allFiles = computed(() => groups.value.flatMap((g) => g.files))
+/** 아직 확인하지 않은 새 변경 파일들. 개별 확인 후 다음으로 넘어갈 때 쓴다. */
+const freshFiles = computed(() => allFiles.value.filter(isFresh))
+
+/** 지금 보고 있는 탭에 해당하는 status 파일. 개별 확인 버튼에 필요하다. */
+const activeStatusFile = computed(() => {
+  const tab = tabs.active.value
+  if (!tab || tab.kind !== 'worktree') return null
+  return (
+    allFiles.value.find((f) => f.path === tab.path && Boolean(f.staged) === Boolean(tab.staged)) ??
+    null
+  )
+})
+
+/**
+ * 이 파일 확인 — Cursor처럼 보고 있는 파일을 하나씩 넘긴다.
+ * 확인하면 다음 새 변경으로 자동으로 옮겨 간다. 44개를 훑을 때 이게 전부다.
+ */
+function confirmActive() {
+  const file = activeStatusFile.value
+  if (!file || review.isReviewed(file)) return
+  const next = freshFiles.value.find((f) => f !== file) ?? null
+  review.toggle(file)
+  if (next) selected.value = next
+}
+
+/**
+ * 전체 확인 — 지금 상태를 기준점으로 굳히고 모두 확인 처리한다.
+ *
+ * 둘은 같은 뜻이고(다 봤다), 따로 두면 사용자가 두 번 눌러야 한다.
+ * 그 뒤 AI가 고친 파일만 새 변경으로 뜨고 확인 체크도 자동으로 풀린다.
+ */
+async function markReviewed() {
+  try {
+    await api.setBaseline()
+    review.markAll(allFiles.value, true)
+    await loadStatus()
+  } catch (err) {
+    diffError.value = err.message
+  }
+}
+
+async function dropBaseline() {
+  try {
+    await api.clearBaseline()
+    freshOnly.value = false
+    compareBase.value = false
+    await loadStatus()
+  } catch (err) {
+    diffError.value = err.message
+  }
+}
 
 const progress = computed(() => {
   const total = allFiles.value.length
@@ -130,7 +205,13 @@ const progress = computed(() => {
 
 async function loadStatus() {
   try {
-    status.value = await api.fetchStatus()
+    const next = await api.fetchStatus()
+    status.value = next
+    baseline.value = next.baseline
+    if (!next.baseline) {
+      freshOnly.value = false
+      compareBase.value = false
+    }
     review.prune(allFiles.value)
     lastSync.value = new Date().toLocaleTimeString('ko-KR', { hour12: false })
 
@@ -200,7 +281,12 @@ async function loadActive() {
         ? fileAsDiff(await api.fetchFile(tab.path))
         : await api.fetchDiff(
             { path: tab.path, staged: tab.staged, untracked: tab.untracked },
-            { context: context.value, sha: tab.kind === 'commit' ? tab.sha : null },
+            {
+              context: context.value,
+              sha: tab.kind === 'commit' ? tab.sha : null,
+              // 워킹트리 탭만 기준점 대비로 볼 수 있다
+              base: tab.kind === 'worktree' && compareBase.value,
+            },
           )
     // 늦게 온 응답은 그 탭에만 담는다 (그 사이 다른 탭으로 옮겼을 수 있다)
     const target = tabs.tabs.value.find((t) => t.id === id)
@@ -225,8 +311,8 @@ async function loadActive() {
 
 watch(() => tabs.activeId.value, loadActive)
 
-// 컨텍스트(보기 범위)를 바꾸면 diff 탭을 다시 받아야 한다
-watch(context, () => {
+// 보기 범위나 비교 대상을 바꾸면 diff 탭을 다시 받아야 한다
+watch([context, compareBase], () => {
   for (const tab of tabs.tabs.value) {
     if (tab.kind !== 'file') tab.stale = true
   }
@@ -420,9 +506,39 @@ function onKey(event) {
         {{ repo.head.shortSha }} · {{ repo.head.subject }}
       </span>
       <span class="spacer" />
-      <span v-if="view === 'changes'" class="progress">
-        확인 {{ progress.done }}/{{ progress.total }}
-      </span>
+
+      <!-- 기준점: AI가 계속 고치는 동안 "새로 바뀐 것"만 가려낸다 -->
+      <template v-if="view === 'changes'">
+        <button
+          v-if="freshFiles.length"
+          class="fresh-badge"
+          :class="{ on: freshOnly }"
+          :title="freshOnly ? '전체 변경 보기' : '새 변경만 보기'"
+          @click="freshOnly = !freshOnly"
+        >
+          새 변경 {{ freshFiles.length }}
+        </button>
+        <span v-else-if="baseline" class="fresh-none" title="기준점 이후 바뀐 것이 없다">
+          새 변경 없음
+        </span>
+
+        <button
+          class="mark-btn"
+          :title="
+            baseline
+              ? '모두 확인 처리하고 지금 상태를 새 기준점으로 잡는다'
+              : '모두 확인 처리하고 지금 상태를 기준점으로 잡는다. 그 뒤 AI가 고친 파일만 새 변경으로 뜬다'
+          "
+          @click="markReviewed()"
+        >
+          전체 확인
+        </button>
+        <button v-if="baseline" class="drop-btn" title="기준점 해제" @click="dropBaseline()">
+          ✕
+        </button>
+
+        <span class="progress">확인 {{ progress.done }}/{{ progress.total }}</span>
+      </template>
       <span v-if="!connected" class="offline" title="gitshow가 실행 중인지 확인하세요">
         {{ retrying ? '연결 끊김 · 다시 시도 중' : '연결 끊김 · 아래 내용은 지금 상태가 아닙니다' }}
         <button v-if="!retrying" class="relink" @click="reconnect">다시 연결</button>
@@ -438,6 +554,7 @@ function onKey(event) {
           :groups="groups"
           :selected="selected"
           :is-reviewed="review.isReviewed"
+          :is-fresh="isFresh"
           @select="selected = $event"
           @toggle-review="review.toggle($event)"
           @review-all="review.markAll($event.files, true)"
@@ -513,9 +630,38 @@ function onKey(event) {
           :diff="tabs.active.value.data"
           :loading="diffLoading && !tabs.active.value.data"
           :error="tabs.active.value.error || diffError"
-          :badge="tabs.active.value.sub"
+          :badge="
+            compareBase && tabs.active.value.kind === 'worktree'
+              ? '기준점 이후'
+              : tabs.active.value.sub
+          "
+          :can-compare-base="Boolean(baseline) && tabs.active.value.kind === 'worktree'"
+          :compare-base="compareBase"
           @update:context="context = $event"
-        />
+          @update:compare-base="compareBase = $event"
+        >
+          <template #actions>
+            <!-- Cursor처럼 보고 있는 파일을 하나씩 확인해 넘긴다 -->
+            <button
+              v-if="activeStatusFile && isFresh(activeStatusFile)"
+              class="confirm-btn"
+              title="이 파일 확인 (space) — 확인하면 다음 새 변경으로 넘어간다"
+              @click="confirmActive()"
+            >
+              ✓ 확인
+              <span v-if="freshFiles.length > 1" class="rest">
+                · 남은 {{ freshFiles.length - 1 }}
+              </span>
+            </button>
+            <span
+              v-else-if="activeStatusFile && review.isReviewed(activeStatusFile)"
+              class="confirmed"
+              title="확인함 (space로 해제)"
+            >
+              ✓ 확인함
+            </span>
+          </template>
+        </DiffViewer>
 
         <div v-else class="empty-main">
           <p>왼쪽에서 파일을 고르거나 <kbd>⌘P</kbd> 로 파일을 열어보세요.</p>
@@ -577,6 +723,73 @@ function onKey(event) {
 .progress {
   flex: none;
   color: var(--fg-dim);
+}
+
+/* 기준점 */
+.fresh-badge,
+.fresh-none,
+.mark-btn,
+.drop-btn {
+  flex: none;
+  font-size: 11px;
+  border-radius: 3px;
+}
+.fresh-badge {
+  padding: 1px 8px;
+  background: #4a3f1c;
+  color: #e8c88a;
+  border: 1px solid #7a6526;
+  font-weight: 600;
+}
+.fresh-badge.on {
+  background: #7a6526;
+  color: #fff;
+}
+.fresh-none {
+  padding: 1px 6px;
+  color: var(--fg-faint);
+}
+.mark-btn {
+  padding: 1px 8px;
+  color: var(--fg-dim);
+  border: 1px solid var(--border-strong);
+}
+.mark-btn:hover {
+  color: var(--fg);
+  background: var(--bg-elevated);
+}
+.drop-btn {
+  padding: 1px 5px;
+  color: var(--fg-faint);
+}
+.drop-btn:hover {
+  color: var(--fg);
+}
+
+/* diff 바 안의 개별 확인 */
+.confirm-btn {
+  flex: none;
+  padding: 2px 10px;
+  background: #35548c;
+  color: #fff;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.confirm-btn:hover {
+  background: #3f63a5;
+}
+.confirm-btn .rest {
+  font-weight: 400;
+  opacity: 0.75;
+}
+.confirmed {
+  flex: none;
+  padding: 2px 8px;
+  color: var(--status-added);
+  font-size: 11px;
+  white-space: nowrap;
 }
 .sync {
   flex: none;
