@@ -26,10 +26,14 @@ gitshow  ──실행──▶  bin/gitshow.js
 | `server/git.js` | git 명령 래퍼. status/diff/stage 파싱 |
 | `server/diff.js` | unified diff 파서 + 단어 단위 diff. 순수 함수 |
 | `server/language.js` | 확장자→언어 판단, Vue SFC 블록 경계 |
+| `server/log.js` | `git log` 파싱 + 그래프 레인 계산. 순수 함수 |
 | `server/watcher.js` | chokidar 감시. 디바운스 후 콜백 |
 | `web/src/api.js` | 서버 통신. 토큰 보관 |
 | `web/src/App.vue` | 상태 소유. 상태 로딩, 파일 선택, 키보드 |
-| `web/src/components/ChangeList.vue` | 좌측 변경 파일 목록 |
+| `web/src/components/ChangeList.vue` | 파일 목록. 워킹트리용과 커밋용(`readonly`)을 겸한다 |
+| `web/src/components/CommitList.vue` | 커밋 목록 + 그래프 SVG + 검색 바 |
+| `web/src/components/RefPicker.vue` | 브랜치·태그 선택기 (이름 검색 포함) |
+| `web/src/composables/useHistory.js` | 히스토리 상태 (로그 페이지, 선택한 커밋) |
 | `web/src/components/DiffViewer.vue` | 우측 side-by-side diff |
 | `web/src/composables/useReview.js` | 파일별 "확인함" 상태 |
 | `web/src/highlight/index.js` | 문법 강조 플러그인 레지스트리 + span 병합 |
@@ -38,6 +42,7 @@ gitshow  ──실행──▶  bin/gitshow.js
 | `test/diff.test.js` | diff 파서 테스트 |
 | `test/highlight.test.js` | 문법 강조 / 구획 판단 테스트 |
 | `test/summary.test.js` | 터미널 요약 테스트 |
+| `test/log.test.js` | 로그 파싱 / 그래프 레인 테스트 |
 
 ## 설계 결정
 
@@ -129,6 +134,59 @@ IDE는 창에 포커스를 줘야 갱신되고, 그게 오히려 방해가 된�
 그래서 종료 시 순서가 있다: 모든 SSE 응답을 `end()` → `closeAllConnections()` →
 `server.close()`. 그래도 남는 연결이 있으면 1초 후 그냥 나간다. 두 번째 Ctrl-C는
 즉시 종료다.
+
+### 그래프는 숫자로 보내고 그림은 클라이언트가 그린다
+
+`git log --graph`의 ASCII 그림을 그대로 옮기지 않는다. 서버는 각 커밋이 몇 번째
+레인에 있고 어떤 선이 그 행을 지나가는지를 숫자로 내보내고(`lane`, `lanesAbove`,
+`lanesBelow`, `parentLanes`), 클라이언트가 SVG로 그린다.
+
+ASCII를 파싱하는 쪽이 짧아 보이지만, `|/`·`|\`·`|_` 조합을 되짚어 위상을
+복원하는 일이 되고 git 버전에 따라 모양도 바뀐다. 부모 관계에서 레인을 직접
+계산하는 편이 오히려 단순하고, 순수 함수라 테스트로 고정할 수 있다.
+
+레인 계산은 "아래로 이어지길 기다리는 선"의 배열을 들고 도는 방식이다. 커밋을
+만나면 그 커밋을 기다리던 레인이 그 자리가 되고, 첫 부모가 자리를 이어받고
+나머지 부모(병합)는 다른 레인으로 갈라진다. 비워진 레인은 재사용해서 그래프 폭이
+무한정 늘지 않게 한다.
+
+### 검색 결과에는 그래프를 그리지 않는다
+
+검색으로 걸러낸 목록은 부모가 대부분 빠져 있어 위상이 끊긴다. 그 상태로 레인을
+계산하면 커밋마다 새 레인을 잡아 **그래프 폭이 커밋 수만큼 늘어나고**, 그려진 선도
+사실과 다르다. 그래서 `filtered`일 때는 `flatLanes()`로 점만 찍고, 화면에도 왜 선이
+없는지 한 줄로 알린다.
+
+거짓 그림을 그리는 것보다 안 그리는 쪽이 낫다는 판단이다. 테스트로 두 함수의 차이를
+고정해 뒀다(끊긴 20개 목록 → `computeLanes`는 레인 폭이 터지고 `flatLanes`는 1).
+
+### ref는 존재 확인까지 하고, 검색어는 인자 하나에 갇힌다
+
+둘 다 사용자 입력이 git 명령에 들어가지만 위험도가 다르다.
+
+- **검색어**는 `--grep=<q>`, `-S<q>` 처럼 인자 **하나 안에** 들어간다. 셸을 거치지
+  않으므로 `-`로 시작해도 옵션으로 해석되지 않는다. 길이만 자른다(200자).
+- **ref**는 리비전 자리에 그대로 놓인다. `--all`이나 `-S...`가 오면 옵션이 된다.
+  그래서 `-`로 시작하면 거부하고, `rev-parse --verify <name>^{commit}`로 실제
+  존재하는지 확인한다. 통과하지 못하면 오류로 만들지 않고 무시하고 전체를 보여준다 —
+  브랜치를 지운 뒤 새로고침한 경우가 오류 화면이 될 이유는 없다.
+
+### 히스토리는 기본으로 모든 브랜치를 본다
+
+`git log`처럼 HEAD 조상만 보여주면 다른 브랜치가 통째로 사라진다. 브랜치 그림을
+보려고 이 화면을 여는 사람에게는 그게 쓸모없다. 그래서 `--all`이 기본이고,
+`현재 브랜치`로 좁히는 토글을 둔다.
+
+### 병합 커밋은 첫 부모와 비교한다
+
+combined diff(`git show`의 기본)는 읽기 어렵다. `<sha>^1 <sha>` 비교가 "이 머지가
+무엇을 들여왔나"를 보여주는 실용적인 답이고, IDE들도 그렇게 한다.
+
+### 더 보기로 이어 받은 구간의 레인은 다시 계산하지 않는다
+
+레인은 받아온 구간 안에서만 계산되므로, 페이지를 이어 붙이면 경계에서 선이 살짝
+어긋날 수 있다. 전체를 다시 받아 계산하면 정확하지만 비용이 크다. 경계 한 줄의
+모양이 어긋나는 정도는 감당할 수 있다고 판단했다.
 
 ### 터미널에도 요약을 찍는다
 

@@ -4,7 +4,11 @@ import { computed } from 'vue'
 const props = defineProps({
   groups: { type: Array, required: true }, // [{ key, title, files }]
   selected: { type: Object, default: null },
-  isReviewed: { type: Function, required: true },
+  // 커밋 파일 목록으로도 쓴다. 그때는 확인 체크와 stage 동작이 의미가 없다.
+  readonly: { type: Boolean, default: false },
+  isReviewed: { type: Function, default: () => false },
+  title: { type: String, default: 'Changes' },
+  countLabel: { type: String, default: 'files' },
 })
 
 const emit = defineEmits(['select', 'toggle-review', 'stage', 'unstage', 'review-all'])
@@ -37,8 +41,9 @@ const totalCount = computed(() => props.groups.reduce((n, g) => n + g.files.leng
 <template>
   <div class="change-list">
     <header class="list-header">
-      <span class="title">Changes</span>
-      <span class="count">{{ totalCount }} files</span>
+      <span class="title">{{ title }}</span>
+      <span class="count">{{ totalCount }} {{ countLabel }}</span>
+      <slot name="header" />
     </header>
 
     <div class="scroll">
@@ -46,10 +51,11 @@ const totalCount = computed(() => props.groups.reduce((n, g) => n + g.files.leng
 
       <section v-for="group in groups" :key="group.key" class="group">
         <template v-if="group.files.length">
-          <div class="group-header">
+          <div v-if="group.title" class="group-header">
             <span>{{ group.title }}</span>
             <span class="group-count">{{ group.files.length }}</span>
             <button
+              v-if="!readonly"
               class="group-action"
               title="이 그룹 전체를 확인함으로 표시"
               @click="emit('review-all', group)"
@@ -66,6 +72,7 @@ const totalCount = computed(() => props.groups.reduce((n, g) => n + g.files.leng
             @click="emit('select', file)"
           >
             <input
+              v-if="!readonly"
               class="check"
               type="checkbox"
               :checked="isReviewed(file)"
@@ -82,6 +89,7 @@ const totalCount = computed(() => props.groups.reduce((n, g) => n + g.files.leng
               <span v-if="file.additions === null" class="bin">bin</span>
             </span>
             <span
+              v-if="!readonly"
               class="stage-action"
               :title="file.staged ? 'unstage' : 'stage'"
               @click.stop="emit(file.staged ? 'unstage' : 'stage', file)"

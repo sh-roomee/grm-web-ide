@@ -33,6 +33,25 @@ function safeJoin(repo, relPath) {
   return abs
 }
 
+/**
+ * 커밋 해시로 쓸 수 있는 값인지 확인한다.
+ *
+ * git은 `--`로 인자와 경로를 나누지만 리비전 자리에는 `HEAD~3`이나 `main..x`
+ * 같은 표현이 다 들어간다. 여기서는 클라이언트가 목록에서 받은 해시만 되돌려
+ * 보내면 되므로 16진수로 못박는다.
+ */
+function validSha(value) {
+  return typeof value === 'string' && /^[0-9a-f]{4,40}$/i.test(value) ? value : null
+}
+
+// 커밋 검색 대상. 이 목록에 없는 값은 message로 떨어진다.
+const SEARCH_MODES = new Set(['message', 'author', 'content', 'path'])
+
+function clamp(value, min, max, fallback) {
+  if (!Number.isInteger(value)) return fallback
+  return Math.min(max, Math.max(min, value))
+}
+
 export function createServer({ repo, token, dev = false }) {
   const app = express()
   app.use(express.json({ limit: '1mb' }))
@@ -78,12 +97,52 @@ export function createServer({ repo, token, dev = false }) {
       const staged = req.query.staged === '1' || req.query.staged === 'true'
       const untracked = req.query.untracked === '1' || req.query.untracked === 'true'
       const context = Number.parseInt(req.query.context ?? '3', 10)
+      const sha = validSha(req.query.sha)
+
       const [raw, highlight] = await Promise.all([
-        gitApi.fileDiff(repo, relPath, { staged, untracked, context }),
+        // sha가 있으면 워킹트리가 아니라 그 커밋 안의 변경을 본다
+        sha
+          ? gitApi.commitFileDiff(repo, sha, relPath, { context })
+          : gitApi.fileDiff(repo, relPath, { staged, untracked, context }),
         highlightInfo(repo, relPath),
       ])
       const parsed = parseUnifiedDiff(raw)
-      res.json({ path: relPath, staged, untracked, ...highlight, ...parsed })
+      res.json({ path: relPath, staged, untracked, sha: sha ?? null, ...highlight, ...parsed })
+    }),
+  )
+
+  app.get(
+    '/api/log',
+    wrap(async (req, res) => {
+      const limit = clamp(Number.parseInt(req.query.limit ?? '100', 10), 1, 500, 100)
+      const skip = clamp(Number.parseInt(req.query.skip ?? '0', 10), 0, 1e6, 0)
+      const all = req.query.all !== '0' && req.query.all !== 'false'
+
+      // 없는 ref거나 옵션처럼 생긴 값이면 무시하고 전체를 보여준다
+      const ref = req.query.ref ? await gitApi.resolveRef(repo, req.query.ref) : null
+
+      const query = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 200) : ''
+      const searchIn = SEARCH_MODES.has(req.query.in) ? req.query.in : 'message'
+
+      res.json(await gitApi.commitLog(repo, { limit, skip, all, ref, query, searchIn }))
+    }),
+  )
+
+  app.get(
+    '/api/refs',
+    wrap(async (_req, res) => {
+      res.json({ refs: await gitApi.refList(repo) })
+    }),
+  )
+
+  app.get(
+    '/api/commit',
+    wrap(async (req, res) => {
+      const sha = validSha(req.query.sha)
+      if (!sha) {
+        throw Object.assign(new Error('sha 파라미터가 필요합니다'), { status: 400 })
+      }
+      res.json(await gitApi.commitDetail(repo, sha))
     }),
   )
 

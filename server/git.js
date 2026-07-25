@@ -1,6 +1,16 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
+import {
+  LOG_FORMAT,
+  REF_FORMAT,
+  parseLog,
+  parseRefList,
+  computeLanes,
+  flatLanes,
+  mergeFileStats,
+} from './log.js'
+
 const execFileAsync = promisify(execFile)
 
 // diff 텍스트는 파일 하나에도 수 MB가 될 수 있어 넉넉히 잡는다.
@@ -188,6 +198,127 @@ export async function headCommit(repo) {
   if (!out) return null
   const [sha, shortSha, author, relativeDate, subject] = out.split('\0')
   return { sha, shortSha, author, relativeDate, subject }
+}
+
+/** 커밋에 부모가 있는지. 최초 커밋은 diff 대상이 달라진다. */
+async function hasParent(repo, sha) {
+  const out = await git(repo, ['rev-parse', '--verify', '--quiet', `${sha}^1`], { allowFail: true })
+  return out.trim() !== ''
+}
+
+/**
+ * 커밋 목록. 그래프 레인은 log.js가 계산한다.
+ *
+ * `--topo-order`를 쓴다. 기본(시간순)은 시계가 어긋난 커밋에서 그래프가
+ * 꼬여 보인다.
+ */
+/** 검색 조건을 git 인자로 바꾼다. 사용자 입력은 인자 하나 안에 갇힌다. */
+function searchArgs(query, searchIn) {
+  if (!query) return []
+  switch (searchIn) {
+    case 'author':
+      return [`--author=${query}`, '--regexp-ignore-case']
+    case 'content':
+      // pickaxe: 이 문자열이 나타난/사라진 커밋. "이 함수 누가 언제 지웠나"
+      return [`-S${query}`, '--pickaxe-all']
+    case 'path':
+      return ['--', query]
+    default:
+      return [`--grep=${query}`, '--regexp-ignore-case']
+  }
+}
+
+export async function commitLog(
+  repo,
+  { limit = 100, skip = 0, all = true, ref = null, query = '', searchIn = 'message' } = {},
+) {
+  const search = searchArgs(query, searchIn)
+  // `-- <경로>` 는 반드시 맨 뒤로 가야 한다
+  const pathspec = searchIn === 'path' && query ? search : []
+  const filters = searchIn === 'path' ? [] : search
+
+  const raw = await git(
+    repo,
+    [
+      'log',
+      '--topo-order',
+      // ref를 고르면 그 브랜치만. 아니면 모든 브랜치가 기본이다. `git log`처럼
+      // HEAD 조상만 보면 다른 브랜치가 통째로 사라져서, 브랜치 그림을 보려고
+      // 이 화면을 여는 사람에게는 쓸모가 없다.
+      ...(ref ? [ref] : all ? ['--all'] : []),
+      ...filters,
+      `--format=${LOG_FORMAT}`,
+      `--max-count=${limit + 1}`, // 한 개 더 받아 다음 페이지가 있는지 본다
+      `--skip=${skip}`,
+      ...pathspec,
+    ],
+    { allowFail: true },
+  )
+  const parsed = parseLog(raw)
+  const hasMore = parsed.length > limit
+  const page = parsed.slice(0, limit)
+
+  // 검색 결과는 위상이 끊겨 있어 그래프가 거짓이 된다
+  const filtered = Boolean(query)
+  const { commits, laneCount } = filtered ? flatLanes(page) : computeLanes(page)
+  return { commits, laneCount, hasMore, skip, limit, filtered, ref: ref ?? null }
+}
+
+/** 로컬 브랜치 · 원격 브랜치 · 태그 목록. 최근 커밋 순. */
+export async function refList(repo) {
+  const raw = await git(
+    repo,
+    ['for-each-ref', '--sort=-committerdate', `--format=${REF_FORMAT}`, 'refs/heads', 'refs/remotes', 'refs/tags'],
+    { allowFail: true },
+  )
+  return parseRefList(raw)
+}
+
+/**
+ * 사용자가 보낸 ref 이름을 그대로 git에 넘겨도 되는지 확인한다.
+ *
+ * 이 값은 리비전 자리에 들어가므로 `--all`이나 `-S...` 같은 옵션으로 해석되면
+ * 안 된다. 그래서 `-`로 시작하는 것을 먼저 막고, 실제로 존재하는 ref인지까지
+ * 확인한다.
+ */
+export async function resolveRef(repo, name) {
+  if (typeof name !== 'string' || !name || name.startsWith('-')) return null
+  const out = await git(repo, ['rev-parse', '--verify', '--quiet', `${name}^{commit}`], {
+    allowFail: true,
+  })
+  return out.trim() ? name : null
+}
+
+/** 커밋 하나의 메타와 바뀐 파일 목록. 병합 커밋은 첫 부모와 비교한다. */
+export async function commitDetail(repo, sha) {
+  const metaRaw = await git(repo, ['log', '-1', `--format=${LOG_FORMAT}`, sha])
+  const [meta] = parseLog(metaRaw)
+  if (!meta) throw Object.assign(new Error('커밋을 찾을 수 없습니다'), { status: 404 })
+
+  const body = await git(repo, ['log', '-1', '--format=%b', sha], { allowFail: true })
+  const rooted = !(await hasParent(repo, sha))
+
+  // 최초 커밋은 비교 대상이 없어 --root로 트리 전체를 낸다
+  const args = rooted
+    ? ['diff-tree', '--root', '-r', '-M', '--no-commit-id', sha]
+    : ['diff-tree', '-r', '-M', '--no-commit-id', `${sha}^1`, sha]
+
+  const [numstat, nameStatus] = await Promise.all([
+    git(repo, [...args, '--numstat'], { allowFail: true }),
+    git(repo, [...args, '--name-status'], { allowFail: true }),
+  ])
+
+  return { ...meta, body: body.trim(), rooted, files: mergeFileStats(numstat, nameStatus) }
+}
+
+/** 커밋 안에서 파일 하나의 diff. */
+export async function commitFileDiff(repo, sha, path, { context = 3 } = {}) {
+  const ctx = `-U${Number.isInteger(context) ? context : 3}`
+  if (await hasParent(repo, sha)) {
+    // 병합 커밋에서도 첫 부모와 비교한다(combined diff는 읽기 어렵다)
+    return git(repo, ['diff', '--no-color', ctx, `${sha}^1`, sha, '--', path], { allowFail: true })
+  }
+  return git(repo, ['show', '--no-color', ctx, '--format=', sha, '--', path], { allowFail: true })
 }
 
 export async function stageFile(repo, path) {

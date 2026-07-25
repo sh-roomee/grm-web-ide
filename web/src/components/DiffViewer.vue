@@ -8,6 +8,8 @@ const props = defineProps({
   diff: { type: Object, default: null },
   loading: { type: Boolean, default: false },
   error: { type: String, default: '' },
+  // 워킹트리가 아니라 커밋을 보고 있을 때 그 사실을 알려준다
+  badge: { type: String, default: '' },
 })
 
 const emit = defineEmits(['update:context'])
@@ -136,7 +138,7 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
     <header class="bar">
       <template v-if="file">
         <span class="path" :title="file.path">{{ file.path }}</span>
-        <span class="badge">{{ file.staged ? 'staged' : 'working tree' }}</span>
+        <span class="badge">{{ badge || (file.staged ? 'staged' : 'working tree') }}</span>
 
         <div class="nav">
           <button title="이전 변경 (↑)" @click="goto(-1)">↑</button>
