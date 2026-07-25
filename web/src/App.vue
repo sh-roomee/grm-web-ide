@@ -136,6 +136,9 @@ function fileAsDiff(doc) {
 /** ⌘P / ⌘⇧F 결과에서 파일을 열면 새 탭이 된다. */
 function openFile({ path, line = null }) {
   tabs.open({ kind: 'file', path, line, sub: '읽기 전용' })
+  // 이미 그 탭을 보고 있었다면 activeId가 그대로여서 watch가 돌지 않는다.
+  // 그러면 줄 이동이 조용히 사라진다(⌘⇧F 결과를 연달아 누르는 경우).
+  loadActive()
 }
 
 /** 검색에서 커밋을 고르면 히스토리 화면으로 옮겨 그 커밋을 띄운다. */
@@ -296,8 +299,16 @@ watch(commitFile, (file) => {
 async function loadActive() {
   const tab = tabs.active.value
   if (!tab) return
-  if (tab.data && !tab.stale) return
 
+  // 이미 받아 둔 내용이 있으면 다시 받지 않는다. 다만 줄 이동은 건너뛰면 안 된다 —
+  // 같은 파일을 다른 줄로 다시 열 수 있다.
+  if (tab.data && !tab.stale) {
+    await revealLine(tab)
+    return
+  }
+  if (tab.loading) return // 이미 받는 중이면 요청을 겹치지 않는다
+
+  tab.loading = true
   diffLoading.value = true
   tab.error = ''
   const id = tab.id
@@ -324,15 +335,20 @@ async function loadActive() {
     const target = tabs.tabs.value.find((t) => t.id === id)
     if (target) target.error = err.message
   } finally {
+    tab.loading = false
     diffLoading.value = false
   }
 
-  // ⌘⇧F 결과로 열었으면 그 줄로 간다
-  if (tab.line) {
-    await nextTick()
-    diffViewer.value?.scrollToLine(tab.line)
-    tab.line = null
-  }
+  await revealLine(tab)
+}
+
+/** ⌘⇧F 결과에서 열었으면 그 줄로 옮겨 준다. */
+async function revealLine(tab) {
+  if (!tab.line) return
+  const line = tab.line
+  tab.line = null
+  await nextTick()
+  diffViewer.value?.scrollToLine(line)
 }
 
 watch(() => tabs.activeId.value, loadActive)

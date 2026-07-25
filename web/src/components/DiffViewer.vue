@@ -157,12 +157,21 @@ watch(findTerm, () => {
   if (hitCount.value) nextTick(() => gotoHit(0))
 })
 
-/** 특정 줄로 이동한다 (⌘⇧F 결과에서 열었을 때). */
-function scrollToLine(lineNo) {
+/**
+ * 특정 줄로 이동한다 (⌘⇧F 결과에서 열었을 때).
+ *
+ * 파일을 막 열었을 때는 행이 아직 그려지지 않았을 수 있다. 한 프레임 뒤에 한 번
+ * 더 시도한다 — 첫 시도에서 조용히 실패하면 "파일만 열리고 안 움직인다"가 된다.
+ */
+function scrollToLine(lineNo, retry = true) {
   const el = scroller.value?.querySelector(`[data-line="${lineNo}"]`)
-  el?.scrollIntoView({ block: 'center' })
-  el?.classList.add('flash')
-  setTimeout(() => el?.classList.remove('flash'), 1200)
+  if (!el) {
+    if (retry) requestAnimationFrame(() => scrollToLine(lineNo, false))
+    return
+  }
+  el.scrollIntoView({ block: 'center' })
+  el.classList.add('flash')
+  setTimeout(() => el.classList.remove('flash'), 1200)
 }
 
 defineExpose({ openFind, scrollToLine })
@@ -774,6 +783,7 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
 .scroll.sel-right .code.side-left {
   user-select: none;
 }
+
 
 /* --- 리뷰 코멘트 --- */
 .comment {

@@ -444,6 +444,10 @@ export async function grep(repo, query, { limit = 400 } = {}) {
       '-I', // 바이너리 파일 건너뛰기
       '-i',
       '-F',
+      // 추적되지 않은 파일도 본다. AI가 방금 만든 파일이 검색에서 빠지면
+      // 이 도구를 쓰는 상황에서 가장 자주 찾을 것을 못 찾는다.
+      // .gitignore는 그대로 지켜진다(node_modules는 안 들어온다).
+      '--untracked',
       '-e',
       query,
       '--',
