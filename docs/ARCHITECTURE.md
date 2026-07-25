@@ -45,6 +45,8 @@ grmide  ──실행──▶  bin/grmide.js
 | `web/src/inline.js` | 나란히 행 → 한 줄 목록 펼치기. 순수 함수 |
 | `web/src/composables/useReview.js` | 파일별 "확인함" 상태 |
 | `web/src/style.css` | 디자인 토큰 (색·글꼴·모양·움직임) |
+| `web/index.html` | 문서 제목(`GRM IDE`)·파비콘·`theme-color` |
+| `web/public/favicon.svg` | 파비콘. 지운 줄(빨강)·더한 줄(초록) 두 막대 |
 | `web/src/highlight/index.js` | 문법 강조 플러그인 레지스트리 + span 병합 |
 | `web/src/highlight/scanner.js` | 규칙 기반 토크나이저 (플러그인 공용) |
 | `web/src/highlight/languages/*.js` | 언어별 플러그인 |
@@ -73,6 +75,12 @@ grmide  ──실행──▶  bin/grmide.js
 
 층은 흐림과 표면 밝기로 만든다: 캔버스(`--bg`) 위에 내용 카드(`--bg-panel`)가 뜨고,
 그 위에 반투명 바와 시트가 얹힌다. 그림자는 팝오버·시트에만 쓴다.
+
+탭에 보이는 이름은 **GRM IDE**로 두고(명령은 `grmide`), 파비콘도 같은 팔레트를 쓴다.
+글자를 쓰지 않고 이 도구가 하는 일을 그렸다 — 지운 줄(빨강, 짧다)과 더한 줄(초록, 길다).
+16px에서 뭉개지지 않게 막대를 두껍게(5.5/32) 잡고, 어두운 탭 바에서 사각형이 사라지지
+않도록 테두리를 한 겹 뒀다. `theme-color`는 캔버스 색과 같게 맞춰 브라우저 크롬이
+앱과 이어지게 한다.
 
 좌측 파일 목록을 iOS 설정 앱의 **inset grouped list**로 만든 것이 이 화면의 시그니처다.
 44개 파일을 훑는 화면이라 줄이 빽빽하게 이어지면 벽이 되고, 그룹이 카드로 떨어져 있으면
