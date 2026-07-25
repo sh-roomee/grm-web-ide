@@ -70,4 +70,8 @@ diff만으로는 판단이 안 되는 순간이 계속 나왔다. 바뀐 줄의 
 
 - 서버: Node 18+ / Express. git은 항상 `execFile`로 인자 배열 전달 (셸 금지)
 - 프론트: Vue 3 (SFC, `<script setup>`) / Vite
-- 상태 관리 라이브러리 없음. `composables/`로 충분하다.
+- 상태 관리 라이브러리 없음. `composables/`로 충분하다
+- 디자인 토큰은 `web/src/style.css` 한 곳에 둔다. 컴포넌트에 색을 직접 쓰지 않는다
+- 겉모습은 Apple 플랫폼의 재료를 쓴다(시스템 폰트·iOS 시스템 컬러·Xcode 팔레트).
+  **코드 영역의 밀도는 건드리지 않는다** — 여백을 늘리면 한 화면에 보이는 줄이 줄어
+  도구가 쓸모없어진다. 자세한 이유는 `docs/ARCHITECTURE.md` 참고.

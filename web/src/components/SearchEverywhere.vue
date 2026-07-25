@@ -288,14 +288,23 @@ const isSelected = (row) => pickable.value[cursor.value]?.key === row.key
 </template>
 
 <style scoped>
+/* 통합 검색 — iOS 시트. 뒤를 흐리게 눌러 층을 만든다 */
 .overlay {
   position: fixed;
   inset: 0;
   z-index: 40;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   display: flex;
   justify-content: center;
   padding-top: 10vh;
+  animation: fade 160ms var(--ease);
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
 }
 
 .palette {
@@ -303,33 +312,43 @@ const isSelected = (row) => pickable.value[cursor.value]?.key === row.key
   max-height: 74vh;
   display: flex;
   flex-direction: column;
-  background: var(--bg-panel);
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+  background: var(--bg-sheet);
+  backdrop-filter: saturate(180%) blur(30px);
+  -webkit-backdrop-filter: saturate(180%) blur(30px);
+  border: 0.5px solid var(--border-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sheet);
   overflow: hidden;
+  animation: rise 200ms var(--ease);
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
 }
 
 .tabs {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 6px 10px 0;
-  border-bottom: 1px solid var(--border);
+  gap: 3px;
+  padding: 9px 12px;
+  border-bottom: 0.5px solid var(--border);
 }
 .tab {
-  padding: 4px 10px 6px;
+  padding: 3px 11px;
   color: var(--fg-dim);
-  font-size: 12px;
-  border-bottom: 2px solid transparent;
+  font-size: 12.5px;
+  font-weight: 500;
+  border-radius: var(--r-pill);
 }
 .tab:hover {
   color: var(--fg);
 }
 .tab.on {
-  color: var(--fg);
-  border-bottom-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
 }
 .spacer {
   flex: 1;
@@ -347,14 +366,18 @@ const isSelected = (row) => pickable.value[cursor.value]?.key === row.key
 
 .input {
   flex: none;
-  padding: 10px 14px;
-  background: var(--bg);
+  margin: 10px 12px;
+  padding: 8px 13px;
+  background: rgba(118, 118, 128, 0.24);
   color: var(--fg);
   border: none;
-  border-bottom: 1px solid var(--border);
+  border-radius: var(--r-pill);
   font: inherit;
-  font-size: 14px;
+  font-size: 15px;
   outline: none;
+}
+.input::placeholder {
+  color: var(--fg-faint);
 }
 
 .list {
@@ -375,35 +398,42 @@ const isSelected = (row) => pickable.value[cursor.value]?.key === row.key
 .row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   width: 100%;
-  padding: 3px 12px;
+  padding: 5px 12px;
   text-align: left;
   min-width: 0;
 }
 .row.on {
-  background: #2f4870;
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.row.on .main {
+  color: #fff;
 }
 
 .icon {
   flex: none;
-  width: 15px;
-  height: 15px;
-  border-radius: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
   font-size: 9.5px;
   line-height: 15px;
   text-align: center;
   font-weight: 700;
-  color: #1e1f22;
+  color: var(--bg);
 }
 .icon.file {
-  background: #7ea6e0;
+  background: var(--accent);
+  color: #fff;
 }
 .icon.commit {
-  background: #c8a25e;
+  background: var(--status-conflicted);
+  color: #241802;
 }
 .icon.text {
-  background: #8fbf7f;
+  background: var(--status-added);
+  color: #04220d;
 }
 
 .main {
@@ -451,8 +481,8 @@ const isSelected = (row) => pickable.value[cursor.value]?.key === row.key
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  padding: 6px 14px;
-  border-top: 1px solid var(--border);
+  padding: 7px 14px;
+  border-top: 0.5px solid var(--border);
   color: var(--fg-faint);
   font-size: 11px;
   min-width: 0;

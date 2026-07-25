@@ -68,6 +68,7 @@ const totalCount = computed(() => props.groups.reduce((n, g) => n + g.files.leng
             </button>
           </div>
 
+          <div class="card">
           <button
             v-for="file in group.files"
             :key="`${group.key}:${file.path}`"
@@ -112,6 +113,7 @@ const totalCount = computed(() => props.groups.reduce((n, g) => n + g.files.leng
               {{ file.staged ? '−' : '+' }}
             </span>
           </button>
+          </div>
         </template>
       </section>
     </div>
@@ -119,98 +121,156 @@ const totalCount = computed(() => props.groups.reduce((n, g) => n + g.files.leng
 </template>
 
 <style scoped>
+/**
+ * 파일 목록 — iOS 설정 앱의 inset grouped list.
+ *
+ * 왜 이 모양인가: 44개 파일을 훑는 화면이다. 줄이 빽빽하게 이어지면 벽이 되고,
+ * 그룹이 카드로 떨어져 있으면 "여기부터 staged"가 눈에 먼저 들어온다.
+ * 목록 스캔에 특화된 형태라 이 화면의 일과 맞는다.
+ */
 .change-list {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--bg-panel);
-  border-right: 1px solid var(--border);
+  background: var(--bg);
 }
 
 .list-header {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
+  align-items: baseline;
+  gap: 7px;
+  padding: 12px 16px 8px;
   flex: none;
 }
 .title {
-  font-weight: 600;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 .count {
   color: var(--fg-faint);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .scroll {
   flex: 1;
   overflow-y: auto;
-  padding-bottom: 12px;
+  padding: 0 10px 16px;
 }
 
 .empty {
   color: var(--fg-faint);
-  padding: 16px 12px;
+  padding: 14px 6px;
+  font-size: 13px;
 }
 
+/* 그룹 제목은 카드 밖에. iOS 설정의 섹션 헤더와 같은 자리다 */
 .group-header {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 6px;
-  padding: 8px 12px 4px;
+  padding: 14px 6px 6px;
   color: var(--fg-dim);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  position: sticky;
-  top: 0;
-  background: var(--bg-panel);
-  z-index: 1;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
 }
 .group-count {
   color: var(--fg-faint);
+  font-variant-numeric: tabular-nums;
 }
 .group-action {
   margin-left: auto;
-  color: var(--fg-faint);
-  text-transform: none;
-  letter-spacing: 0;
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 500;
 }
 .group-action:hover {
-  color: var(--accent);
+  opacity: 0.75;
+}
+
+/* 그룹 = 카드. 첫 행과 마지막 행만 둥글다 */
+.group {
+  display: block;
+}
+.card {
+  background: var(--bg-panel);
+  border-radius: var(--r-md);
+  overflow: hidden;
 }
 
 .row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   width: 100%;
-  padding: 3px 12px 3px 8px;
+  padding: 6px 11px;
   text-align: left;
   min-width: 0;
+  position: relative;
+}
+/* 행 사이 구분선은 왼쪽 여백을 띄운다 — iOS 목록의 특징 */
+.row + .row::before {
+  content: '';
+  position: absolute;
+  left: 32px;
+  right: 0;
+  top: 0;
+  height: 0.5px;
+  background: var(--border);
 }
 .row:hover {
   background: var(--bg-elevated);
 }
+/* macOS 사이드바처럼 반투명 강조. 꽉 찬 파랑은 44줄을 훑을 때 피곤하다 */
 .row.active {
-  background: #2f4870;
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.row.active .name {
+  color: #fff;
+  font-weight: 590;
 }
 .row.reviewed .name,
 .row.reviewed .dir {
-  opacity: 0.45;
+  opacity: 0.4;
 }
 
 .check {
   flex: none;
-  accent-color: var(--accent);
+  appearance: none;
+  width: 15px;
+  height: 15px;
   margin: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--fg-faint);
+  cursor: pointer;
+  transition: all var(--fast) var(--ease);
 }
+.check:checked {
+  background: var(--status-added);
+  border-color: var(--status-added);
+}
+/* 가운데 체크 표시 */
+.check:checked::after {
+  content: '';
+  display: block;
+  width: 4px;
+  height: 7px;
+  margin: 1.5px 0 0 4px;
+  border: solid #04220d;
+  border-width: 0 1.6px 1.6px 0;
+  transform: rotate(42deg);
+}
+
 
 .status {
   flex: none;
-  width: 12px;
+  width: 13px;
   text-align: center;
   font-family: var(--mono);
+  font-size: 10.5px;
   font-weight: 700;
 }
 .s-added {
@@ -232,6 +292,7 @@ const totalCount = computed(() => props.groups.reduce((n, g) => n + g.files.leng
   color: var(--status-conflicted);
 }
 
+
 /* 사람이 놓치기 쉬운 지점이 있는 파일 */
 .risk {
   flex: none;
@@ -240,18 +301,21 @@ const totalCount = computed(() => props.groups.reduce((n, g) => n + g.files.leng
   cursor: help;
 }
 
+
 /* 마지막으로 확인한 뒤 바뀐 파일 */
 .fresh {
   flex: none;
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: #e8c88a;
-  margin-left: -2px;
+  background: var(--accent);
+  margin-left: -1px;
 }
+
 
 .name {
   flex: none;
+  font-size: 13px;
   white-space: nowrap;
 }
 .dir {
@@ -269,9 +333,10 @@ const totalCount = computed(() => props.groups.reduce((n, g) => n + g.files.leng
 .stat {
   flex: none;
   display: flex;
-  gap: 4px;
+  gap: 5px;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
 }
 .plus {
   color: var(--status-added);
@@ -285,16 +350,21 @@ const totalCount = computed(() => props.groups.reduce((n, g) => n + g.files.leng
 
 .stage-action {
   flex: none;
-  width: 16px;
+  width: 18px;
+  height: 18px;
+  line-height: 17px;
   text-align: center;
-  color: var(--fg-faint);
+  border-radius: 50%;
+  color: var(--fg-dim);
   font-family: var(--mono);
+  background: rgba(118, 118, 128, 0.24);
   visibility: hidden;
 }
 .row:hover .stage-action {
   visibility: visible;
 }
 .stage-action:hover {
-  color: var(--accent);
+  background: var(--accent);
+  color: #fff;
 }
 </style>

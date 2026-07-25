@@ -54,18 +54,22 @@ const dirName = (path) => {
 </template>
 
 <style scoped>
+/* 열어 둔 문서 — Safari 탭처럼 알약으로 띄운다 */
 .tab-bar {
   flex: none;
   display: flex;
-  align-items: stretch;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
   background: var(--bg);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0.5px solid var(--border);
   min-width: 0;
 }
 
 .strip {
   flex: 1;
   display: flex;
+  gap: 5px;
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
@@ -78,20 +82,21 @@ const dirName = (path) => {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 5px;
-  max-width: 260px;
-  padding: 4px 6px 4px 9px;
-  border-right: 1px solid var(--border);
-  border-bottom: 2px solid transparent;
+  gap: 6px;
+  max-width: 250px;
+  padding: 3px 7px 3px 10px;
+  border-radius: var(--r-pill);
+  background: rgba(118, 118, 128, 0.16);
   cursor: pointer;
   user-select: none;
+  transition: background var(--fast) var(--ease);
 }
 .tab:hover {
-  background: var(--bg-elevated);
+  background: rgba(118, 118, 128, 0.3);
 }
 .tab.on {
-  background: var(--bg-panel);
-  border-bottom-color: var(--accent);
+  background: var(--bg-elevated);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
 .kind {
@@ -114,7 +119,8 @@ const dirName = (path) => {
 
 .name {
   flex: none;
-  font-size: 12px;
+  font-size: 12.5px;
+  font-weight: 500;
   white-space: nowrap;
 }
 .dir {
@@ -131,10 +137,11 @@ const dirName = (path) => {
 
 .close {
   flex: none;
-  width: 15px;
+  width: 16px;
+  height: 16px;
   color: var(--fg-faint);
-  font-size: 10px;
-  border-radius: 2px;
+  font-size: 9px;
+  border-radius: 50%;
   visibility: hidden;
 }
 .tab:hover .close,
@@ -142,20 +149,20 @@ const dirName = (path) => {
   visibility: visible;
 }
 .close:hover {
-  background: var(--border-strong);
+  background: rgba(118, 118, 128, 0.5);
   color: var(--fg);
 }
 
 .close-all {
   flex: none;
-  padding: 0 9px;
-  color: var(--fg-faint);
-  font-size: 11px;
-  border-left: 1px solid var(--border);
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  color: var(--fg-dim);
+  font-size: 11.5px;
   white-space: nowrap;
 }
 .close-all:hover {
   color: var(--fg);
-  background: var(--bg-elevated);
+  background: rgba(118, 118, 128, 0.24);
 }
 </style>

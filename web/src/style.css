@@ -1,52 +1,93 @@
-/* JetBrains 계열 다크 테마를 기준으로 한 색 토큰. 초기 버전은 다크만 지원한다. */
+/**
+ * grmide 디자인 토큰 — Apple 플랫폼의 재료를 그대로 쓴다.
+ *
+ * 왜 흉내가 아니라 실제 값인가: 이 도구는 macOS에서 터미널 옆에 띄운다.
+ * 시스템 폰트(SF Pro / SF Mono)와 iOS 시스템 컬러를 쓰면 OS와 같은 결이 되고,
+ * 웹폰트를 받지 않아 로컬 도구답게 즉시 뜬다.
+ *
+ * 밀도 원칙: 바·목록·팝오버는 iOS처럼 여유를 두고, **코드 영역은 건드리지 않는다.**
+ * diff는 한 화면에 많이 보여야 쓸모가 있다.
+ */
+
 :root {
-  --bg: #1e1f22;
-  --bg-panel: #2b2d30;
-  --bg-elevated: #313438;
-  --border: #393b40;
-  --border-strong: #4e5157;
-  --fg: #dfe1e5;
-  --fg-dim: #9da0a8;
-  --fg-faint: #6f737a;
-  --accent: #548af7;
+  /* --- 표면 (iOS dark: systemBackground 계열) --- */
+  --bg: #0b0b0d; /* 캔버스. 순검정보다 살짝 푸른 쪽 */
+  --bg-panel: #1c1c1e; /* 카드·목록 그룹 */
+  --bg-elevated: #2c2c2e; /* 행 강조·입력창 */
+  --bg-sheet: rgba(28, 28, 30, 0.82); /* 블러 위에 얹는 시트 */
+  --bg-bar: rgba(11, 11, 13, 0.72); /* 반투명 내비게이션 바 */
 
-  --diff-add-bg: #29382e;
-  --diff-del-bg: #3b2b2f;
-  --diff-mod-bg: #2c3441;
-  --diff-gutter: #26282e;
+  /* --- 구분선 (iOS separator) --- */
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
 
-  /* 변경된 단어 배경. 문법 강조 글자색이 위에 얹히므로 채도를 낮추고,
-     대신 밑줄로 존재를 알린다. 배경만 진하게 하면 글자색이 죽는다. */
-  --diff-add-word: #2f5d3b;
-  --diff-add-line: #62b543;
-  --diff-del-word: #6b3339;
-  --diff-del-line: #cf5b56;
+  /* --- 글자 (iOS label 계층) --- */
+  --fg: #f2f2f7;
+  --fg-dim: rgba(235, 235, 245, 0.6);
+  --fg-faint: rgba(235, 235, 245, 0.32);
 
-  /* 문법 강조 토큰. highlight/ 플러그인이 내보내는 cls 이름과 짝이다. */
-  --tok-keyword: #cf8e6d;
-  --tok-string: #6aab73;
-  --tok-number: #2aacb8;
-  --tok-comment: #7a7e85;
-  --tok-function: #56a8f5;
-  --tok-tag: #e8bf6a;
-  --tok-attr: #bfa4d6;
-  --tok-property: #bfa4d6;
-  --tok-directive: #cf8e6d;
-  --tok-selector: #e8bf6a;
-  --tok-variable: #c77dbb;
-  --tok-entity: #2aacb8;
-  --tok-interp: #cf8e6d;
-  --tok-operator: #a9b7c6;
-  --tok-punct: #8b9099;
+  /* --- 강조 (iOS system colors, dark) --- */
+  --accent: #0a84ff; /* systemBlue */
+  --accent-soft: rgba(10, 132, 255, 0.16);
+  --status-added: #30d158; /* systemGreen */
+  --status-modified: #0a84ff;
+  --status-deleted: #ff453a; /* systemRed */
+  --status-untracked: #bf5af2; /* systemPurple */
+  --status-conflicted: #ff9f0a; /* systemOrange */
 
-  --status-added: #62b543;
-  --status-modified: #548af7;
-  --status-deleted: #cf5b56;
-  --status-untracked: #9876aa;
-  --status-conflicted: #e8a33d;
+  /* --- diff 배경. 색을 옅게 깔고 글자색이 위에서 살아나게 한다 --- */
+  --diff-add-bg: rgba(48, 209, 88, 0.11);
+  --diff-del-bg: rgba(255, 69, 58, 0.1);
+  --diff-mod-bg: rgba(10, 132, 255, 0.08);
+  --diff-gutter: rgba(255, 255, 255, 0.03);
 
-  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
-  --row-height: 20px;
+  /* 바뀐 단어. 배경은 절제하고 밑줄로 존재를 알린다 */
+  --diff-add-word: rgba(48, 209, 88, 0.26);
+  --diff-add-line: #30d158;
+  --diff-del-word: rgba(255, 69, 58, 0.26);
+  --diff-del-line: #ff453a;
+
+  /**
+   * 문법 강조 — Xcode 다크 팔레트.
+   * 이 도구가 사는 세계의 색이라 다른 팔레트를 만들 이유가 없다.
+   */
+  --tok-keyword: #ff7ab2; /* flow control / 키워드 */
+  --tok-string: #ff8170;
+  --tok-number: #d9c97c;
+  --tok-comment: #7f8c98;
+  --tok-function: #67b7a4; /* 프로젝트 함수 */
+  --tok-property: #b281eb; /* 프로퍼티·객체 키 */
+  --tok-attr: #b281eb;
+  --tok-type: #6bdfff;
+  --tok-tag: #6bdfff; /* 마크업 태그 = 타입 자리 */
+  --tok-selector: #6bdfff;
+  --tok-directive: #ff7ab2; /* Vue 디렉티브는 흐름 제어처럼 읽힌다 */
+  --tok-variable: #b281eb;
+  --tok-entity: #d9c97c;
+  --tok-interp: #ff7ab2;
+  --tok-operator: rgba(235, 235, 245, 0.7);
+  --tok-punct: rgba(235, 235, 245, 0.45);
+
+  /* --- 글꼴 --- */
+  --ui:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Apple SD Gothic Neo', 'Segoe UI', sans-serif;
+  --mono: 'SF Mono', ui-monospace, Menlo, 'JetBrains Mono', Consolas, monospace;
+
+  /* --- 모양 --- */
+  --r-sm: 6px;
+  --r-md: 10px; /* 카드·목록 그룹 */
+  --r-lg: 14px; /* 시트 */
+  --r-pill: 980px;
+
+  /* --- 그림자. iOS는 그림자를 아끼고 흐림으로 층을 만든다 --- */
+  --shadow-pop: 0 10px 30px rgba(0, 0, 0, 0.5);
+  --shadow-sheet: 0 24px 60px rgba(0, 0, 0, 0.6);
+
+  /* --- 움직임 (iOS 기본 곡선에 가깝게) --- */
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --fast: 140ms;
+
+  --row-height: 20px; /* 코드 한 줄. 밀도의 기준이라 바꾸지 않는다 */
 }
 
 * {
@@ -66,9 +107,11 @@ body,
 body {
   background: var(--bg);
   color: var(--fg);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Apple SD Gothic Neo', sans-serif;
+  font-family: var(--ui);
   font-size: 13px;
-  overflow: hidden;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 button {
@@ -77,19 +120,51 @@ button {
   background: none;
   border: none;
   cursor: pointer;
+  transition:
+    background var(--fast) var(--ease),
+    color var(--fast) var(--ease),
+    opacity var(--fast) var(--ease);
 }
 
+button:active {
+  opacity: 0.72;
+}
+
+/* 키보드 초점은 항상 보이게. 마우스 클릭에는 나타나지 않는다 */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: var(--r-sm);
+}
+
+input,
+textarea,
+select {
+  font-family: var(--ui);
+}
+
+/* iOS는 스크롤바를 숨긴다. 손이 갈 곳에만 얇게 남긴다 */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #4a4d54;
-  border-radius: 5px;
+  background: rgba(235, 235, 245, 0.18);
+  border-radius: var(--r-pill);
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #5c6068;
+  background: rgba(235, 235, 245, 0.3);
+  background-clip: content-box;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

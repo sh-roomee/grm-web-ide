@@ -184,7 +184,7 @@ const groups = computed(() => {
   return [
     { key: 'conflicted', title: '충돌', files: keep(status.value.conflicted) },
     { key: 'staged', title: 'Staged', files: keep(status.value.staged) },
-    { key: 'unstaged', title: 'Changes', files: keep(status.value.unstaged) },
+    { key: 'unstaged', title: '수정', files: keep(status.value.unstaged) },
   ]
 })
 
@@ -641,6 +641,8 @@ function onKey(event) {
           v-if="view === 'changes'"
           :groups="groups"
           :selected="selected"
+          title="변경사항"
+          count-label="개"
           :is-reviewed="review.isReviewed"
           :is-fresh="isFresh"
           :risks-for="risksFor"
@@ -787,22 +789,34 @@ function onKey(event) {
   height: 100%;
 }
 
+/**
+ * 내비게이션 바 — iOS처럼 반투명하게 띄우고 아래를 머리카락 선으로 끊는다.
+ * 스크롤되는 내용 위에 얹히는 층이라는 것을 흐림으로 알린다.
+ */
 .top {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 7px 12px;
-  background: var(--bg-panel);
-  border-bottom: 1px solid var(--border);
+  gap: 10px;
+  padding: 8px 14px;
+  background: var(--bg-bar);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 0.5px solid var(--border);
   flex: none;
   min-width: 0;
+  z-index: 5;
 }
 .repo {
   flex: none;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 .branch {
   flex: none;
-  color: var(--accent);
+  color: var(--fg-dim);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 .head {
   color: var(--fg-faint);
@@ -818,20 +832,23 @@ function onKey(event) {
   color: var(--fg-dim);
 }
 
-/* 위험 신호 */
+/* 상태 알약. iOS 뱃지처럼 색은 옅게 깔고 글자에 색을 준다 */
 .risk-badge {
   flex: none;
-  padding: 1px 8px;
-  background: #4a3f1c;
-  color: #e8c88a;
-  border: 1px solid #7a6526;
-  border-radius: 3px;
-  font-size: 11px;
-  font-weight: 600;
+  padding: 2px 9px;
+  background: rgba(255, 159, 10, 0.16);
+  color: var(--status-conflicted);
+  border-radius: var(--r-pill);
+  font-size: 12px;
+  font-weight: 590;
+  font-variant-numeric: tabular-nums;
+}
+.risk-badge:hover {
+  background: rgba(255, 159, 10, 0.26);
 }
 .risk-badge.on {
-  background: #7a6526;
-  color: #fff;
+  background: var(--status-conflicted);
+  color: #241802;
 }
 
 /* 기준점 */
@@ -840,75 +857,80 @@ function onKey(event) {
 .mark-btn,
 .drop-btn {
   flex: none;
-  font-size: 11px;
-  border-radius: 3px;
+  font-size: 12px;
 }
 .fresh-badge {
-  padding: 1px 8px;
-  background: #4a3f1c;
-  color: #e8c88a;
-  border: 1px solid #7a6526;
-  font-weight: 600;
+  padding: 2px 9px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: var(--r-pill);
+  font-weight: 590;
+  font-variant-numeric: tabular-nums;
+}
+.fresh-badge:hover {
+  background: rgba(10, 132, 255, 0.26);
 }
 .fresh-badge.on {
-  background: #7a6526;
+  background: var(--accent);
   color: #fff;
 }
 .fresh-none {
-  padding: 1px 6px;
+  padding: 2px 4px;
   color: var(--fg-faint);
 }
 .mark-btn {
-  padding: 1px 8px;
-  color: var(--fg-dim);
-  border: 1px solid var(--border-strong);
+  padding: 3px 11px;
+  color: var(--fg);
+  background: rgba(118, 118, 128, 0.24);
+  border-radius: var(--r-pill);
+  font-weight: 500;
 }
 .mark-btn:hover {
-  color: var(--fg);
-  background: var(--bg-elevated);
+  background: rgba(118, 118, 128, 0.36);
 }
 .drop-btn {
-  padding: 1px 5px;
+  padding: 2px 6px;
   color: var(--fg-faint);
+  border-radius: var(--r-pill);
 }
 .drop-btn:hover {
   color: var(--fg);
+  background: rgba(118, 118, 128, 0.24);
 }
 
 /* 코멘트를 프롬프트로 복사 */
+/* 코멘트를 AI에게 넘기는 주 동작. 화면에서 유일하게 채워진 버튼이다 */
 .copy-btn {
   flex: none;
-  padding: 1px 9px;
-  background: #2f5c34;
-  color: #cfe8c4;
-  border: 1px solid #3f7a46;
-  border-radius: 3px;
-  font-size: 11px;
-  font-weight: 600;
+  padding: 3px 11px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: var(--r-pill);
+  font-size: 12px;
+  font-weight: 590;
   white-space: nowrap;
 }
 .copy-btn:hover {
-  background: #3f7a46;
-  color: #fff;
+  background: #3d9bff;
 }
 .copy-btn.done {
-  background: #3f7a46;
-  color: #fff;
+  background: var(--status-added);
+  color: #04220d;
 }
 
 /* diff 바 안의 개별 확인 */
 .confirm-btn {
   flex: none;
-  padding: 2px 10px;
-  background: #35548c;
+  padding: 3px 12px;
+  background: var(--accent);
   color: #fff;
-  border-radius: 3px;
-  font-size: 11px;
-  font-weight: 600;
+  border-radius: var(--r-pill);
+  font-size: 12px;
+  font-weight: 590;
   white-space: nowrap;
 }
 .confirm-btn:hover {
-  background: #3f63a5;
+  background: #3d9bff;
 }
 .confirm-btn .rest {
   font-weight: 400;
@@ -918,12 +940,14 @@ function onKey(event) {
   flex: none;
   padding: 2px 8px;
   color: var(--status-added);
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 500;
   white-space: nowrap;
 }
 .sync {
   flex: none;
   color: var(--fg-faint);
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   min-width: 62px;
   text-align: right;
@@ -939,13 +963,14 @@ function onKey(event) {
   color: var(--status-conflicted);
 }
 .relink {
-  padding: 1px 8px;
-  border: 1px solid var(--border-strong);
-  border-radius: 3px;
+  padding: 2px 10px;
+  border-radius: var(--r-pill);
+  background: rgba(118, 118, 128, 0.24);
   color: var(--fg);
+  font-weight: 500;
 }
 .relink:hover {
-  background: var(--bg-elevated);
+  background: rgba(118, 118, 128, 0.36);
 }
 
 .body {
@@ -954,13 +979,13 @@ function onKey(event) {
   min-height: 0;
 }
 .side {
-  width: 340px;
-  min-width: 220px;
+  width: 346px;
+  min-width: 240px;
   max-width: 60%;
   flex: none;
   resize: horizontal;
   overflow: hidden;
-  border-right: 1px solid var(--border);
+  border-right: 0.5px solid var(--border);
 }
 
 /* 히스토리 탭에서만 좌측을 위아래로 나눈다 */
@@ -975,19 +1000,19 @@ function onKey(event) {
   min-height: 120px;
   overflow: hidden;
   resize: vertical;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0.5px solid var(--border);
 }
 .commit-detail {
   flex: 1 1 45%;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--bg-panel);
+  background: var(--bg);
 }
 .meta {
   flex: none;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
+  padding: 10px 14px;
+  border-bottom: 0.5px solid var(--border);
   max-height: 30%;
   overflow-y: auto;
 }
@@ -1000,6 +1025,7 @@ function onKey(event) {
 .sha {
   font-family: var(--mono);
   color: var(--status-conflicted);
+  font-size: 11.5px;
 }
 .who {
   color: var(--fg-dim);
@@ -1008,8 +1034,10 @@ function onKey(event) {
   color: var(--fg-faint);
 }
 .subject {
-  margin: 4px 0 0;
+  margin: 5px 0 0;
+  font-size: 13px;
   font-weight: 600;
+  letter-spacing: -0.005em;
 }
 .body-text {
   margin: 6px 0 0;
@@ -1024,30 +1052,32 @@ function onKey(event) {
   min-height: 0;
 }
 
-/* 탭 */
+/**
+ * 화면 전환 — iOS 세그먼티드 컨트롤. 홈 안에 트랙을 깔고 고른 칸만 떠오른다.
+ * 두 화면이 대등한 선택지라는 뜻이 모양에 담긴다.
+ */
 .tabs {
   flex: none;
   display: flex;
-  border: 1px solid var(--border-strong);
-  border-radius: 4px;
-  overflow: hidden;
+  gap: 2px;
+  padding: 2px;
+  background: rgba(118, 118, 128, 0.24);
+  border-radius: 8px;
 }
 .tab {
-  padding: 2px 10px;
-  font-size: 11px;
+  padding: 3px 12px;
+  font-size: 12px;
+  font-weight: 500;
   color: var(--fg-dim);
-  border-right: 1px solid var(--border-strong);
-}
-.tab:last-child {
-  border-right: none;
+  border-radius: 6px;
 }
 .tab:hover {
-  background: var(--bg-elevated);
   color: var(--fg);
 }
 .tab.on {
-  background: #35548c;
-  color: #fff;
+  background: var(--bg-elevated);
+  color: var(--fg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 .main {
   flex: 1;
@@ -1074,12 +1104,12 @@ function onKey(event) {
   margin: 0;
 }
 kbd {
-  padding: 1px 5px;
-  border: 1px solid var(--border-strong);
-  border-bottom-width: 2px;
-  border-radius: 3px;
-  background: var(--bg-elevated);
-  font-family: var(--mono);
-  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: var(--r-sm);
+  background: rgba(118, 118, 128, 0.24);
+  color: var(--fg);
+  font-family: var(--ui);
+  font-size: 11.5px;
+  font-weight: 500;
 }
 </style>

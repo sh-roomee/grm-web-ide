@@ -43,6 +43,7 @@ grmide  ──실행──▶  bin/grmide.js
 | `web/src/composables/useHistory.js` | 히스토리 상태 (로그 페이지, 선택한 커밋) |
 | `web/src/components/DiffViewer.vue` | 우측 side-by-side diff |
 | `web/src/composables/useReview.js` | 파일별 "확인함" 상태 |
+| `web/src/style.css` | 디자인 토큰 (색·글꼴·모양·움직임) |
 | `web/src/highlight/index.js` | 문법 강조 플러그인 레지스트리 + span 병합 |
 | `web/src/highlight/scanner.js` | 규칙 기반 토크나이저 (플러그인 공용) |
 | `web/src/highlight/languages/*.js` | 언어별 플러그인 |
@@ -54,6 +55,29 @@ grmide  ──실행──▶  bin/grmide.js
 | `test/risks.test.js` | 위험 신호 판별 테스트 |
 
 ## 설계 결정
+
+### 겉모습은 Apple 플랫폼의 재료를 그대로 쓴다
+
+이 도구는 macOS에서 터미널 옆에 띄운다. 그래서 iOS/macOS를 흉내내는 대신 **그 재료를
+그대로** 쓴다: 시스템 폰트(SF Pro / SF Mono), iOS 시스템 컬러, 문법 강조는 Xcode 다크
+팔레트. 웹폰트를 받지 않으니 로컬 도구답게 즉시 뜨고, OS와 같은 결이 된다.
+
+구조는 **"iOS 껍데기, 터미널 심장"** 으로 갈랐다.
+
+- **크롬**(내비게이션 바·목록·팝오버·시트)은 iOS 문법을 따른다. 반투명 바, 세그먼티드
+  컨트롤, 알약 뱃지, inset grouped list, 흐린 시트.
+- **코드 영역의 밀도는 건드리지 않는다.** 줄 높이 20px, 12.5px 고정폭 그대로다.
+  iOS의 넉넉한 여백을 코드에 적용하면 한 화면에 보이는 줄이 줄어 도구가 쓸모없어진다.
+
+층은 흐림과 표면 밝기로 만든다: 캔버스(`--bg`) 위에 내용 카드(`--bg-panel`)가 뜨고,
+그 위에 반투명 바와 시트가 얹힌다. 그림자는 팝오버·시트에만 쓴다.
+
+좌측 파일 목록을 iOS 설정 앱의 **inset grouped list**로 만든 것이 이 화면의 시그니처다.
+44개 파일을 훑는 화면이라 줄이 빽빽하게 이어지면 벽이 되고, 그룹이 카드로 떨어져 있으면
+"여기부터 staged"가 눈에 먼저 들어온다. 목록 스캔에 특화된 형태가 이 화면의 일과 맞는다.
+
+선택 행은 꽉 찬 파랑이 아니라 **반투명 강조 + 왼쪽 막대**다(macOS 사이드바 방식).
+파일 44개를 오가는 동안 채도 높은 면이 계속 바뀌면 눈이 피곤하다.
 
 ### diff 파싱을 서버에서 한다
 

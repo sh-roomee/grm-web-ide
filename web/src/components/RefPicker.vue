@@ -116,19 +116,21 @@ function onEnter() {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 1px 7px;
-  font-size: 11px;
-  color: var(--fg-dim);
-  border: 1px solid var(--border-strong);
-  border-radius: 3px;
-  max-width: 160px;
+  padding: 2px 9px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--fg);
+  background: rgba(118, 118, 128, 0.24);
+  border: none;
+  border-radius: var(--r-pill);
+  max-width: 170px;
 }
 .trigger:hover {
-  color: var(--fg);
+  background: rgba(118, 118, 128, 0.36);
 }
 .trigger.on {
+  background: var(--accent-soft);
   color: var(--accent);
-  border-color: var(--accent);
 }
 .caret {
   opacity: 0.6;
@@ -142,33 +144,43 @@ function onEnter() {
 
 .panel {
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + 6px);
   right: 0;
   z-index: 21;
-  width: 280px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-strong);
-  border-radius: 5px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  width: 290px;
+  background: var(--bg-sheet);
+  backdrop-filter: saturate(180%) blur(30px);
+  -webkit-backdrop-filter: saturate(180%) blur(30px);
+  border: 0.5px solid var(--border-strong);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-pop);
   overflow: hidden;
+  animation: pop 160ms var(--ease);
+}
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
 }
 
 .filter {
-  width: 100%;
-  padding: 6px 9px;
-  background: var(--bg);
+  width: calc(100% - 16px);
+  margin: 8px;
+  padding: 6px 11px;
+  background: rgba(118, 118, 128, 0.24);
   color: var(--fg);
   border: none;
-  border-bottom: 1px solid var(--border);
+  border-radius: var(--r-pill);
   font: inherit;
-  font-size: 12px;
+  font-size: 12.5px;
   outline: none;
 }
 
 .list {
   max-height: 320px;
   overflow-y: auto;
-  padding: 4px 0;
+  padding: 2px 6px 6px;
 }
 
 .group {
@@ -187,8 +199,11 @@ function onEnter() {
   padding: 3px 9px;
   text-align: left;
 }
+.item {
+  border-radius: var(--r-sm);
+}
 .item:hover {
-  background: #3a3d42;
+  background: rgba(118, 118, 128, 0.28);
 }
 .item.on {
   color: var(--accent);
@@ -208,12 +223,13 @@ function onEnter() {
   font-size: 12px;
 }
 .here {
-  margin-left: 4px;
-  padding: 0 4px;
-  border-radius: 2px;
-  background: #2f5c34;
-  color: #b7e0a8;
+  margin-left: 5px;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: rgba(48, 209, 88, 0.2);
+  color: var(--status-added);
   font-size: 9.5px;
+  font-weight: 590;
 }
 .meta {
   flex: none;

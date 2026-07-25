@@ -44,7 +44,9 @@ const LANE_WIDTH = 14
 const DOT_R = 3.5
 
 // 레인마다 색을 돌려 쓴다. 브랜치를 눈으로 따라가려면 색이 필요하다.
-const LANE_COLORS = ['#548af7', '#62b543', '#e8a33d', '#c77dbb', '#2aacb8', '#cf5b56']
+// iOS 시스템 컬러. 브랜치를 눈으로 따라가려면 색이 필요하고, 화면의 나머지와
+// 같은 팔레트를 써야 따로 튀지 않는다.
+const LANE_COLORS = ['#0a84ff', '#30d158', '#ff9f0a', '#bf5af2', '#40c8e0', '#ff453a']
 const laneColor = (lane) => LANE_COLORS[lane % LANE_COLORS.length]
 
 const graphWidth = computed(() => Math.max(1, props.laneCount) * LANE_WIDTH + 6)
@@ -190,7 +192,7 @@ const REF_CLASS = {
             :cx="row.x"
             :cy="ROW_HEIGHT / 2"
             :r="row.commit.isMerge ? DOT_R - 1 : DOT_R"
-            :fill="row.commit.isMerge ? 'var(--bg-panel)' : row.color"
+            :fill="row.commit.isMerge ? 'var(--bg)' : row.color"
             :stroke="row.color"
             stroke-width="1.5"
           />
@@ -224,19 +226,20 @@ const REF_CLASS = {
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: var(--bg-panel);
+  background: var(--bg);
 }
 
 .list-header {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
+  padding: 12px 14px 8px;
   flex: none;
 }
 .title {
-  font-weight: 600;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 .count {
   color: var(--fg-faint);
@@ -249,35 +252,35 @@ const REF_CLASS = {
 .search {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 5px 8px;
-  border-bottom: 1px solid var(--border);
+  gap: 5px;
+  padding: 2px 12px 9px;
   flex: none;
 }
 .mode {
   flex: none;
-  background: var(--bg-elevated);
+  background: rgba(118, 118, 128, 0.24);
   color: var(--fg-dim);
-  border: 1px solid var(--border-strong);
-  border-radius: 3px;
+  border: none;
+  border-radius: var(--r-sm);
   font: inherit;
-  font-size: 11px;
-  padding: 2px 2px;
+  font-size: 11.5px;
+  padding: 3px 4px;
+  outline: none;
 }
 .term {
   flex: 1;
   min-width: 0;
-  padding: 3px 7px;
-  background: var(--bg);
+  padding: 4px 11px;
+  background: rgba(118, 118, 128, 0.24);
   color: var(--fg);
-  border: 1px solid var(--border-strong);
-  border-radius: 3px;
+  border: none;
+  border-radius: var(--r-pill);
   font: inherit;
-  font-size: 12px;
+  font-size: 12.5px;
   outline: none;
 }
 .term:focus {
-  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 .term::-webkit-search-cancel-button {
   display: none;
@@ -293,12 +296,12 @@ const REF_CLASS = {
 
 .filter-note {
   flex: none;
-  margin: 0;
-  padding: 4px 9px;
-  background: #33302a;
+  margin: 0 10px 6px;
+  padding: 6px 11px;
+  background: rgba(255, 159, 10, 0.12);
   color: var(--status-conflicted);
-  font-size: 11px;
-  border-bottom: 1px solid var(--border);
+  font-size: 11.5px;
+  border-radius: var(--r-sm);
 }
 
 .hint {
@@ -330,7 +333,12 @@ const REF_CLASS = {
   background: var(--bg-elevated);
 }
 .row.active {
-  background: #2f4870;
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.row.active .subject {
+  color: #fff;
+  font-weight: 590;
 }
 
 .graph {
@@ -344,27 +352,28 @@ const REF_CLASS = {
   gap: 4px;
 }
 .ref {
-  padding: 0 5px;
-  border-radius: 3px;
+  padding: 0 7px;
+  border-radius: var(--r-pill);
   font-size: 10.5px;
-  line-height: 15px;
+  font-weight: 590;
+  line-height: 16px;
   white-space: nowrap;
 }
 .ref-head {
-  background: #2f5c34;
-  color: #b7e0a8;
+  background: rgba(48, 209, 88, 0.2);
+  color: var(--status-added);
 }
 .ref-branch {
-  background: #2f4870;
-  color: #b6ccec;
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 .ref-remote {
-  background: #3a3d42;
+  background: rgba(118, 118, 128, 0.24);
   color: var(--fg-dim);
 }
 .ref-tag {
-  background: #4d3f22;
-  color: #e8c88a;
+  background: rgba(255, 159, 10, 0.18);
+  color: var(--status-conflicted);
 }
 
 .subject {

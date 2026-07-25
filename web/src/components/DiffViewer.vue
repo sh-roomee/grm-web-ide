@@ -575,17 +575,19 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
   min-width: 0;
 }
 
+/* 파일 도구 바. 내비게이션 바와 같은 재료를 쓰되 흐림은 걸지 않는다 */
 .bar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--border);
+  gap: 9px;
+  padding: 7px 14px;
+  border-bottom: 0.5px solid var(--border);
   flex: none;
   min-width: 0;
 }
 .path {
   font-family: var(--mono);
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -597,9 +599,9 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
 }
 .badge {
   flex: none;
-  padding: 1px 6px;
-  border: 1px solid var(--border-strong);
-  border-radius: 3px;
+  padding: 1px 8px;
+  border-radius: var(--r-pill);
+  background: rgba(118, 118, 128, 0.2);
   color: var(--fg-dim);
   font-size: 11px;
 }
@@ -618,12 +620,13 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
   flex: none;
 }
 .nav button {
-  padding: 0 5px;
+  width: 20px;
+  height: 20px;
   color: var(--fg-dim);
-  border-radius: 3px;
+  border-radius: 50%;
 }
 .nav button:hover {
-  background: var(--bg-elevated);
+  background: rgba(118, 118, 128, 0.24);
   color: var(--fg);
 }
 .pos {
@@ -643,30 +646,29 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
 .ctl.on {
   color: var(--accent);
 }
-/* 보기 범위 선택 */
+/* 보기 범위·비교 대상 — 상단 화면 전환과 같은 세그먼티드 컨트롤 */
 .modes {
   flex: none;
   display: flex;
-  border: 1px solid var(--border-strong);
-  border-radius: 4px;
-  overflow: hidden;
+  gap: 2px;
+  padding: 2px;
+  background: rgba(118, 118, 128, 0.2);
+  border-radius: 7px;
 }
 .mode {
   padding: 2px 9px;
-  font-size: 11px;
+  font-size: 11.5px;
+  font-weight: 500;
   color: var(--fg-dim);
-  border-right: 1px solid var(--border-strong);
-}
-.mode:last-child {
-  border-right: none;
+  border-radius: 5px;
 }
 .mode:hover {
-  background: var(--bg-elevated);
   color: var(--fg);
 }
 .mode.on {
-  background: #35548c;
-  color: #fff;
+  background: var(--bg-elevated);
+  color: var(--fg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
 /* 위험 신호 띠 */
@@ -674,11 +676,11 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
   flex: none;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 4px 12px;
-  background: #33302a;
-  border-bottom: 1px solid var(--border);
-  font-size: 11.5px;
+  gap: 14px;
+  padding: 6px 14px;
+  background: rgba(255, 159, 10, 0.1);
+  border-bottom: 0.5px solid var(--border);
+  font-size: 12px;
   color: var(--status-conflicted);
   overflow-x: auto;
 }
@@ -692,14 +694,21 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
 }
 .risk-item strong {
   color: #fff;
+  font-variant-numeric: tabular-nums;
 }
 
 /* 마커 눈금이 스크롤 영역 위에 얹히도록 */
+/**
+ * 코드가 놓이는 면. 캔버스보다 한 단 올려서 "크롬 / 내용"이 갈리게 한다.
+ * iOS에서 목록·카드가 캔버스 위에 뜨는 것과 같은 층 구조다.
+ */
 .stage {
   position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
+  background: var(--bg-panel);
+  border-top: 0.5px solid var(--border);
 }
 
 /* 겹치지 않게 나란히 둔다. 코드 위에 얹으면 글자를 가린다. */
@@ -709,14 +718,14 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
   order: 2;
   width: 12px;
   background: var(--diff-gutter);
-  border-left: 1px solid var(--border);
+  border-left: 0.5px solid var(--border);
 }
 .marker {
   position: absolute;
   right: 2px;
   width: 8px;
   height: 3px;
-  border-radius: 1px;
+  border-radius: var(--r-pill);
   transform: translateY(-1px);
 }
 .marker:hover {
@@ -747,9 +756,10 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
 }
 
 .notice {
-  padding: 16px;
+  padding: 18px;
   color: var(--fg-faint);
-  font-family: inherit;
+  font-family: var(--ui);
+  font-size: 13px;
 }
 .notice.err {
   color: var(--status-deleted);
@@ -758,11 +768,12 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
 .hunk {
   display: flex;
   gap: 10px;
-  padding: 2px 12px;
-  background: var(--diff-gutter);
+  padding: 3px 12px;
+  background: rgba(118, 118, 128, 0.12);
   color: var(--fg-faint);
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  border-top: 0.5px solid var(--border);
+  border-bottom: 0.5px solid var(--border);
+  font-size: 11px;
   position: sticky;
   top: 0;
   z-index: 1;
@@ -788,21 +799,21 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
   text-align: right;
   color: var(--fg-faint);
   background: var(--diff-gutter);
-  border-right: 1px solid var(--border);
+  border-right: 0.5px solid var(--border);
   user-select: none;
   font-variant-numeric: tabular-nums;
-  font-size: 11px;
+  font-size: 10.5px;
 }
 .gutter.clickable {
   cursor: pointer;
 }
 .gutter.clickable:hover {
-  background: #3a3d42;
+  background: rgba(118, 118, 128, 0.36);
   color: var(--accent);
 }
 /* 코멘트로 고른 줄 범위 */
 .gutter.picked {
-  background: #35548c;
+  background: var(--accent);
   color: #fff;
 }
 .code.picked {
@@ -825,12 +836,12 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
 .comment {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 5px 12px 5px 56px;
-  background: #2b2f26;
-  border-left: 3px solid var(--status-added);
-  font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif;
-  font-size: 12px;
+  gap: 9px;
+  padding: 7px 14px 7px 56px;
+  background: rgba(48, 209, 88, 0.09);
+  border-left: 2px solid var(--status-added);
+  font-family: var(--ui);
+  font-size: 12.5px;
   line-height: 1.5;
   white-space: pre-wrap;
 }
@@ -854,18 +865,19 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
 }
 
 .comment.compose {
-  background: #26303a;
+  background: var(--accent-soft);
   border-left-color: var(--accent);
   align-items: flex-end;
 }
 .comment-input {
   flex: 1;
   min-width: 0;
-  padding: 5px 8px;
-  background: var(--bg);
+  padding: 7px 10px;
+  background: var(--bg-panel);
   color: var(--fg);
-  border: 1px solid var(--accent);
-  border-radius: 3px;
+  border: none;
+  box-shadow: 0 0 0 1px var(--border-strong);
+  border-radius: 8px;
   font: inherit;
   font-size: 12px;
   resize: vertical;
@@ -874,20 +886,25 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
 .comment-save,
 .comment-cancel {
   flex: none;
-  padding: 3px 10px;
-  border-radius: 3px;
-  font-size: 11px;
+  padding: 4px 13px;
+  border-radius: var(--r-pill);
+  font-size: 12px;
+  font-weight: 500;
 }
 .comment-save {
-  background: #35548c;
+  background: var(--accent);
   color: #fff;
+  font-weight: 590;
 }
 .comment-save:hover {
-  background: #3f63a5;
+  background: #3d9bff;
 }
 .comment-cancel {
-  color: var(--fg-dim);
-  border: 1px solid var(--border-strong);
+  color: var(--fg);
+  background: rgba(118, 118, 128, 0.24);
+}
+.comment-cancel:hover {
+  background: rgba(118, 118, 128, 0.36);
 }
 
 .code {
@@ -901,7 +918,7 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
   overflow-wrap: anywhere;
 }
 .code.empty {
-  background: #26282c;
+  background: rgba(0, 0, 0, 0.22);
 }
 
 .t-add .code:last-child,
@@ -926,9 +943,9 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
 
 /* 찾기 결과. diff 배경색 위에 얹히므로 테두리로 존재를 알린다. */
 .hit {
-  background: #6b5a1e;
-  box-shadow: inset 0 0 0 1px #d4a72c;
-  border-radius: 2px;
+  background: rgba(255, 214, 10, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(255, 214, 10, 0.85);
+  border-radius: 3px;
 }
 .line[data-hit] {
   scroll-margin-top: 40px;
@@ -941,7 +958,7 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
 @keyframes flash {
   0%,
   40% {
-    background: #4a4420;
+    background: rgba(255, 214, 10, 0.24);
   }
   100% {
     background: transparent;
@@ -956,15 +973,19 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
   gap: 2px;
 }
 .find-input {
-  width: 170px;
-  padding: 2px 7px;
-  background: var(--bg);
+  width: 180px;
+  padding: 3px 10px;
+  background: rgba(118, 118, 128, 0.24);
   color: var(--fg);
-  border: 1px solid var(--accent);
-  border-radius: 3px;
+  border: none;
+  border-radius: var(--r-pill);
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12px;
   outline: none;
+}
+.find-input:focus {
+  background: var(--bg-elevated);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 .find-pos {
   min-width: 46px;
@@ -974,12 +995,13 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
   font-variant-numeric: tabular-nums;
 }
 .find button {
-  padding: 0 5px;
+  width: 20px;
+  height: 20px;
   color: var(--fg-dim);
-  border-radius: 3px;
+  border-radius: 50%;
 }
 .find button:hover {
-  background: var(--bg-elevated);
+  background: rgba(118, 118, 128, 0.24);
   color: var(--fg);
 }
 
