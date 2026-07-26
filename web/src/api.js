@@ -106,6 +106,17 @@ export const deleteComments = (ids) =>
 
 export const clearComments = () => request('/api/comments?all=1', { method: 'DELETE' })
 
+// --- 컨텍스트 바구니: "이것도 같이 봐"를 모아 두는 곳
+export const fetchContext = () => request('/api/context')
+
+export const addContext = (item) =>
+  request('/api/context', { method: 'POST', body: JSON.stringify(item) })
+
+export const deleteContext = (id) =>
+  request(`/api/context?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+
+export const clearContext = () => request('/api/context?all=1', { method: 'DELETE' })
+
 export function fetchLog({ limit = 100, skip = 0, ref = null, q = '', in: searchIn = 'message' } = {}) {
   const params = new URLSearchParams({ limit: String(limit), skip: String(skip) })
   if (ref) params.set('ref', ref)

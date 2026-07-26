@@ -24,7 +24,13 @@ const props = defineProps({
   risks: { type: Array, default: () => [] },
 })
 
-const emit = defineEmits(['update:context', 'update:compareBase', 'comment', 'delete-comment'])
+const emit = defineEmits([
+  'update:context',
+  'update:compareBase',
+  'comment',
+  'delete-comment',
+  'add-context',
+])
 
 /**
  * 텍스트 선택을 한쪽 컬럼에 붙잡아 둔다.
@@ -88,6 +94,24 @@ function inPicked(side, num) {
     if (num >= from && num <= to) return true
   }
   return false
+}
+
+/**
+ * 고른 줄 범위를 컨텍스트 바구니에 담는다.
+ *
+ * 줄을 끌어 고른 다음에 할 수 있는 일이 "코멘트 쓰기"뿐이었다. 그런데 그 동작의
+ * 절반은 "여기 좀 봐"라서, 같은 자리에서 담을 수 있어야 한다.
+ */
+function stashRange() {
+  const draft = composing.value
+  if (!draft || !props.file) return
+  emit('add-context', {
+    kind: 'range',
+    path: props.file.path,
+    line: draft.from,
+    endLine: draft.to,
+  })
+  composing.value = null
 }
 
 function submitComment() {
@@ -459,6 +483,14 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
           </button>
         </div>
 
+        <button
+          class="ctl"
+          title="이 파일을 컨텍스트에 담는다 — AI에게 '이것도 같이 봐'로 넘어간다"
+          @click="emit('add-context', { kind: 'file', path: file.path })"
+        >
+          담기
+        </button>
+
         <!--
           보기 방식은 둘 중 하나라 토글 하나로 둔다. 세그먼트로 두 칸을 쓰면
           이 기능이 필요한 좁은 폭에서 바가 먼저 넘친다.
@@ -721,6 +753,13 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
                   @keydown.esc.prevent="composing = null"
                 />
                 <button class="comment-save" @click="submitComment()">저장</button>
+                <button
+                  class="comment-cancel"
+                  title="이 구간을 컨텍스트에 담는다 (코멘트는 남기지 않는다)"
+                  @click="stashRange()"
+                >
+                  구간 담기
+                </button>
                 <button class="comment-cancel" @click="composing = null">취소</button>
               </div>
             </template>

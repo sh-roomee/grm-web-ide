@@ -6,11 +6,13 @@ import CommitList from './components/CommitList.vue'
 import DiffViewer from './components/DiffViewer.vue'
 import SearchEverywhere from './components/SearchEverywhere.vue'
 import ReviewSheet from './components/ReviewSheet.vue'
+import ContextSheet from './components/ContextSheet.vue'
 import TabBar from './components/TabBar.vue'
 import { useReview } from './composables/useReview.js'
 import { useHistory } from './composables/useHistory.js'
 import { useTabs } from './composables/useTabs.js'
 import { useComments } from './composables/useComments.js'
+import { useContext } from './composables/useContext.js'
 import * as api from './api.js'
 
 const repo = ref(null)
@@ -48,7 +50,9 @@ const commitFile = ref(null) // 히스토리 화면에서 고른 파일
 const diffViewer = ref(null) // ⌘F를 넘겨주기 위한 참조
 const tabs = useTabs()
 const comments = useComments()
+const basket = useContext()
 const copied = ref(false)
+const contextOpen = ref(false)
 const reviewOpen = ref(false)
 // 리뷰 시트에서 고른 코멘트와, 그것으로 미리 만들어 둔 프롬프트
 const pickedIds = ref([])
@@ -75,6 +79,23 @@ async function copyPrompt(ids = null) {
   const ok = await comments.copyPrompt(ids)
   copied.value = ok
   if (ok) setTimeout(() => (copied.value = false), 1600)
+}
+
+/** 컨텍스트에 담는다. 어디서 담든 여기로 온다. */
+function stash(item) {
+  basket.add(item)
+}
+
+async function copyContext() {
+  const ok = await basket.copyPrompt()
+  copied.value = ok
+  if (ok) setTimeout(() => (copied.value = false), 1600)
+  contextOpen.value = false
+}
+
+function openFromContext({ path, line = null }) {
+  contextOpen.value = false
+  openFile({ path, line })
 }
 
 /**
@@ -459,13 +480,14 @@ onMounted(async () => {
   await Promise.all([loadStatus(), loadRisks()])
   await loadActive()
   await comments.load()
+  await basket.load()
 
   // 파일이 바뀌면 서버가 알려준다. 폴링이 아니라 이 스트림이 갱신의 기준이다.
   stream = api.subscribeChanges({
     onChange: async () => {
       live.value = true
       tabs.markStale()
-      await Promise.all([loadStatus(), loadRisks()])
+      await Promise.all([loadStatus(), loadRisks(), comments.load(), basket.load()])
       await loadActive()
       setTimeout(() => (live.value = false), 600)
     },
@@ -502,9 +524,10 @@ function onKey(event) {
   const meta = event.metaKey || event.ctrlKey
 
   // Esc는 어디에 포커스가 있든 열린 것을 닫는다
-  if (event.key === 'Escape' && (paletteOpen.value || reviewOpen.value)) {
+  if (event.key === 'Escape' && (paletteOpen.value || reviewOpen.value || contextOpen.value)) {
     paletteOpen.value = false
     reviewOpen.value = false
+    contextOpen.value = false
     return
   }
 
@@ -621,6 +644,17 @@ function onKey(event) {
         {{ repo.head.shortSha }} · {{ repo.head.subject }}
       </span>
       <span class="spacer" />
+
+      <!-- 읽을 곳을 AI에게 넘기는 경로 -->
+      <button
+        v-if="basket.count.value"
+        class="basket-btn"
+        title="컨텍스트 — 담아 둔 파일·구간·검색을 프롬프트로 넘긴다"
+        @click="contextOpen = true"
+      >
+        컨텍스트 {{ basket.count.value }}
+      </button>
+      <span v-if="basket.lastAdded.value" class="stashed">{{ basket.lastAdded.value }}</span>
 
       <!-- 코멘트를 AI에게 넘기는 경로. 누르면 리뷰 스레드가 열린다 -->
       <template v-if="comments.comments.value.length">
@@ -790,6 +824,7 @@ function onKey(event) {
           @update:compare-base="compareBase = $event"
           @comment="addComment($event)"
           @delete-comment="comments.remove($event)"
+          @add-context="stash($event)"
         >
           <template #actions>
             <!-- Cursor처럼 보고 있는 파일을 하나씩 확인해 넘긴다 -->
@@ -829,6 +864,17 @@ function onKey(event) {
       @close="paletteOpen = false"
       @open-file="openFile($event)"
       @open-commit="openCommit($event)"
+      @add-context="stash($event)"
+    />
+
+    <ContextSheet
+      :open="contextOpen"
+      :items="basket.items.value"
+      @close="contextOpen = false"
+      @open-file="openFromContext($event)"
+      @remove="basket.remove($event)"
+      @clear="basket.clear()"
+      @copy="copyContext()"
     />
 
     <ReviewSheet
@@ -964,6 +1010,33 @@ function onKey(event) {
 .drop-btn:hover {
   color: var(--fg);
   background: rgba(118, 118, 128, 0.24);
+}
+
+.basket-btn {
+  flex: none;
+  padding: 3px 11px;
+  border-radius: var(--r-pill);
+  background: rgba(118, 118, 128, 0.24);
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.basket-btn:hover {
+  background: rgba(118, 118, 128, 0.36);
+}
+
+/* 담긴 순간에만 잠깐 뜬다 — 시트를 열지 않아도 담긴 것을 안다 */
+.stashed {
+  flex: none;
+  color: var(--status-added);
+  font-size: 11.5px;
+  animation: fade 260ms var(--ease);
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
 }
 
 .done-count {

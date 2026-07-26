@@ -10,6 +10,12 @@ import { analyzeRisks, splitDiffFiles } from './risks.js'
 import { previewInfo } from './preview.js'
 import { attachStatus } from './resolve.js'
 import {
+  normalizeItem,
+  itemKey,
+  buildContextPrompt,
+  MAX_GREP_HITS,
+} from './context.js'
+import {
   readState,
   saveReviewed,
   addComment,
@@ -17,6 +23,9 @@ import {
   removeComment,
   clearComments,
   buildPrompt,
+  addContext,
+  removeContext,
+  clearContext,
 } from './state.js'
 import { createWatcher } from './watcher.js'
 
@@ -444,6 +453,76 @@ export function createServer({ repo, token, gitDir, dev = false }) {
       }
       const removed = await removeComment(gitDir, req.query.id)
       if (!removed) throw Object.assign(new Error('코멘트를 찾을 수 없습니다'), { status: 404 })
+      res.json({ ok: true })
+    }),
+  )
+
+  /**
+   * 컨텍스트 바구니 — "이것도 같이 봐"를 모아 두는 곳.
+   *
+   * 내용은 **넘길 때** 읽는다. 담을 때 얼려 두면 AI가 고친 뒤에는 프롬프트가
+   * 사실과 달라진다. 바구니는 "무엇을 볼지"만 들고 있다.
+   */
+  async function contextSources(items) {
+    const sources = new Map()
+    await Promise.all(
+      items.map(async (item) => {
+        const key = itemKey(item)
+        if (item.kind === 'grep') {
+          const result = await gitApi.grep(repo, item.query, { limit: MAX_GREP_HITS * 4 })
+          sources.set(key, { hits: result.hits, total: result.hits.length })
+          return
+        }
+        try {
+          const abs = safeJoin(repo, item.path)
+          const text = await fs.promises.readFile(abs, 'utf8')
+          const all = text.split('\n')
+          if (all.length && all[all.length - 1] === '') all.pop()
+          const lines =
+            item.kind === 'range'
+              ? all
+                  .slice(item.line - 1, item.endLine)
+                  // 구간은 줄 번호를 붙여 준다 — AI가 어디를 말하는지 알아야 한다
+                  .map((line, i) => `${item.line + i}: ${line}`)
+              : all
+          sources.set(key, { lines })
+        } catch {
+          sources.set(key, { missing: true })
+        }
+      }),
+    )
+    return sources
+  }
+
+  app.get(
+    '/api/context',
+    wrap(async (_req, res) => {
+      const state = await readState(gitDir)
+      const sources = await contextSources(state.context)
+      res.json({ items: state.context, prompt: buildContextPrompt(state.context, sources) })
+    }),
+  )
+
+  app.post(
+    '/api/context',
+    wrap(async (req, res) => {
+      const item = normalizeItem(req.body)
+      if (!item) throw Object.assign(new Error('담을 수 없는 항목입니다'), { status: 400 })
+      if (item.path) safeJoin(repo, item.path)
+      const result = await addContext(gitDir, item, itemKey(item))
+      res.json(result)
+    }),
+  )
+
+  app.delete(
+    '/api/context',
+    wrap(async (req, res) => {
+      if (req.query.all === '1') {
+        await clearContext(gitDir)
+        return res.json({ ok: true })
+      }
+      const removed = await removeContext(gitDir, req.query.id)
+      if (!removed) throw Object.assign(new Error('항목을 찾을 수 없습니다'), { status: 404 })
       res.json({ ok: true })
     }),
   )

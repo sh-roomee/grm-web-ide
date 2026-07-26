@@ -19,8 +19,10 @@ const FILE_NAME = 'grmide-state.json'
 // 명령 이름이 gitshow였을 때 쓰던 파일. 리뷰 메모를 잃지 않도록 한 번 옮겨 온다.
 const LEGACY_FILE_NAME = 'gitshow-state.json'
 const MAX_COMMENTS = 500
+// 바구니는 "지금 사이클에 볼 곳"이라 길어질 이유가 없다
+const MAX_CONTEXT = 40
 
-const emptyState = () => ({ version: 1, comments: [], reviewed: {} })
+const emptyState = () => ({ version: 1, comments: [], reviewed: {}, context: [] })
 
 function statePath(gitDir) {
   return path.join(gitDir, FILE_NAME)
@@ -52,6 +54,7 @@ export async function readState(gitDir) {
       ...parsed,
       comments: parsed.comments ?? [],
       reviewed: parsed.reviewed ?? {},
+      context: parsed.context ?? [],
     }
   } catch {
     // 없거나 깨졌으면 빈 상태로 시작한다. 리뷰 메모 때문에 도구가 멈추면 안 된다.
@@ -93,6 +96,44 @@ export async function addComment(gitDir, { path: filePath, line, endLine, side, 
   }
   await writeState(gitDir, state)
   return comment
+}
+
+/**
+ * 컨텍스트 바구니에 담는다.
+ *
+ * 같은 것을 두 번 담으면 프롬프트에 같은 파일이 두 번 들어간다. 열쇠가 같으면
+ * 새로 넣지 않고 이미 있는 것을 돌려준다 — 누른 사람 입장에서는 "이미 담겼다".
+ */
+export async function addContext(gitDir, item, key) {
+  const state = await readState(gitDir)
+  const found = state.context.find((entry) => entry.key === key)
+  if (found) return { item: found, added: false }
+
+  const entry = {
+    id: `x${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    key,
+    ...item,
+    addedAt: new Date().toISOString(),
+  }
+  state.context.push(entry)
+  if (state.context.length > MAX_CONTEXT) state.context = state.context.slice(-MAX_CONTEXT)
+  await writeState(gitDir, state)
+  return { item: entry, added: true }
+}
+
+export async function removeContext(gitDir, id) {
+  const state = await readState(gitDir)
+  const before = state.context.length
+  state.context = state.context.filter((entry) => entry.id !== id)
+  if (state.context.length === before) return false
+  await writeState(gitDir, state)
+  return true
+}
+
+export async function clearContext(gitDir) {
+  const state = await readState(gitDir)
+  state.context = []
+  await writeState(gitDir, state)
 }
 
 export async function updateComment(gitDir, id, text) {

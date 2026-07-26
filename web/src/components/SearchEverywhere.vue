@@ -20,7 +20,7 @@ const props = defineProps({
   files: { type: Array, default: () => [] },
 })
 
-const emit = defineEmits(['close', 'open-file', 'open-commit', 'update:tab'])
+const emit = defineEmits(['close', 'open-file', 'open-commit', 'update:tab', 'add-context'])
 
 const TABS = [
   { key: 'all', label: '전체' },
@@ -160,6 +160,23 @@ function choose(row = current.value) {
   emit('close')
 }
 
+/**
+ * 결과를 열지 않고 **컨텍스트 바구니에 담는다** (⌥Enter).
+ *
+ * 검색은 대개 "이 파일도 AI가 봐야 한다"를 찾는 일이라, 찾은 자리에서 바로 담는
+ * 길이 없으면 사람이 경로를 손으로 옮겨 적게 된다. 창은 닫지 않는다 — 보통 여러
+ * 개를 이어서 담는다.
+ *
+ * 텍스트 검색 결과는 **그 파일**을 담는다. 한 줄만 넘기면 AI가 앞뒤를 볼 수 없다.
+ * 검색어 자체를 담고 싶으면 아래 `검색 담기`를 쓴다 (넘길 때 다시 검색한다).
+ */
+function stash(row = current.value) {
+  if (!row) return
+  if (row.kind === 'file' || row.kind === 'text') {
+    emit('add-context', { kind: 'file', path: row.hit.path })
+  }
+}
+
 function cycleTab(delta) {
   const at = TABS.findIndex((t) => t.key === props.tab)
   emit('update:tab', TABS[(at + delta + TABS.length) % TABS.length].key)
@@ -223,7 +240,8 @@ const isSelected = (row) => pickable.value[cursor.value]?.key === row.key
         "
         @keydown.down.prevent="move(1)"
         @keydown.up.prevent="move(-1)"
-        @keydown.enter.prevent="choose()"
+        @keydown.enter.exact.prevent="choose()"
+        @keydown.enter.alt.prevent="stash()"
         @keydown.esc.prevent="emit('close')"
         @keydown.tab.exact.prevent="cycleTab(1)"
         @keydown.tab.shift.prevent="cycleTab(-1)"
@@ -281,7 +299,15 @@ const isSelected = (row) => pickable.value[cursor.value]?.key === row.key
 
       <footer class="foot">
         <span class="mono ellipsis">{{ footPath }}</span>
-        <span class="keys">↑↓ 이동 · Enter 열기 · Esc 닫기</span>
+        <button
+          v-if="tab === 'text' && trimmed"
+          class="stash-query"
+          title="검색어를 컨텍스트에 담는다. 넘길 때 다시 검색하므로 결과가 낡지 않는다"
+          @click="emit('add-context', { kind: 'grep', query: trimmed })"
+        >
+          검색 담기
+        </button>
+        <span class="keys">↑↓ 이동 · Enter 열기 · ⌥Enter 담기 · Esc 닫기</span>
       </footer>
     </div>
   </div>
@@ -354,6 +380,19 @@ const isSelected = (row) => pickable.value[cursor.value]?.key === row.key
   flex: 1;
 }
 .loading,
+.stash-query {
+  flex: none;
+  padding: 2px 10px;
+  border-radius: var(--r-pill);
+  background: rgba(118, 118, 128, 0.24);
+  color: var(--fg-dim);
+  font-size: 11px;
+}
+.stash-query:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 .hint {
   color: var(--fg-faint);
   font-size: 11px;
