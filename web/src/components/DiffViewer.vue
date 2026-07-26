@@ -13,6 +13,8 @@ const props = defineProps({
   error: { type: String, default: '' },
   // 워킹트리가 아니라 커밋을 보고 있을 때 그 사실을 알려준다
   badge: { type: String, default: '' },
+  // 심볼릭 링크면 가리키는 곳. diff 가 비어 있어 이것만이 내용이다
+  link: { type: String, default: '' },
   // 파일 하나를 그냥 읽는 모드(⌘P로 열었을 때). diff가 아니라 한 컬럼이다.
   single: { type: Boolean, default: false },
   // 기준점 대비로 볼 수 있는 상태인지 (기준점이 있고 워킹트리 diff일 때만)
@@ -619,6 +621,8 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
         <p v-else-if="diff?.binary" class="notice">
           바이너리 파일입니다. 내용을 비교할 수 없습니다.
         </p>
+        <!-- 링크는 diff 가 비어 있다. 무엇인지는 말해 준다 -->
+        <p v-else-if="link" class="notice">심볼릭 링크입니다 → <code>{{ link }}</code></p>
         <p v-else-if="!diff?.hunks.length" class="notice">표시할 변경사항이 없습니다.</p>
 
         <template v-else>

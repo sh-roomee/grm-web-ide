@@ -357,6 +357,27 @@ side-by-side diff의 DOM 순서는 `[좌번호, 좌코드, 우번호, 우코드]
 파일이 바뀌어도 무엇을 보고 쓴 코멘트인지 남는다. 형식은 `buildPrompt()` 순수
 함수에 있고 테스트로 고정했다 — 이 문자열이 실제 산출물이다.
 
+### 브랜치 이름은 `branch --show-current` 로 읽는다
+
+`rev-parse --abbrev-ref HEAD` 를 쓰면 안 된다. 그 경로(`shorten_unambiguous_ref`)는 이름을
+**29바이트에서 자른다.** ASCII 브랜치는 티가 안 나지만 한글 브랜치는 글자 중간이 잘려
+깨진 문자로 끝난다 — 실제 저장소에서 발견했다 (Apple Git 2.39.5):
+
+```
+feature/GRMWEB3-1639-다인-접속-메모리-누수-개선
+→ feature/GRMWEB3-1639-다인-<0xEC>      (rev-parse --abbrev-ref)
+→ feature/GRMWEB3-1639-다인-접속-메모리-누수-개선  (branch --show-current)
+```
+
+`--show-current` 는 git 2.22부터라, 없으면 옛 경로로 떨어지고 detached 면 짧은 해시를 쓴다.
+
+### 심볼릭 링크를 "바이너리"라고 하지 않는다
+
+줄 수를 셀 수 없다고 전부 바이너리는 아니다. worktree 안에 도구가 만든
+`.claude -> ../.claude` 같은 링크가 있으면 변경 목록에 매번 뜨는데, "바이너리 파일"로
+보이면 정체를 알 수 없다. `git diff --numstat` 이 셀 수 없다고 답하면 `lstat` 으로 링크인지
+확인해 **가리키는 곳**을 함께 준다. 목록에는 `링크`, 뷰어에는 `심볼릭 링크입니다 → ../.claude`.
+
 ### 요약을 지어내지 않는다
 
 파일이 40개면 "지금까지 뭐가 됐지"를 다시 훑는 데 리뷰만큼 걸린다. 그래서 사이클

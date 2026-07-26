@@ -102,7 +102,8 @@ const totalCount = computed(() => props.groups.reduce((n, g) => n + g.files.leng
             <span class="stat">
               <span v-if="file.additions" class="plus">+{{ file.additions }}</span>
               <span v-if="file.deletions" class="minus">-{{ file.deletions }}</span>
-              <span v-if="file.additions === null" class="bin">bin</span>
+              <span v-if="file.link" class="bin" :title="`심볼릭 링크 → ${file.link}`">링크</span>
+              <span v-else-if="file.additions === null" class="bin">bin</span>
             </span>
             <span
               v-if="!readonly"

@@ -48,8 +48,19 @@ export async function resolveRepoRoot(cwd) {
   }
 }
 
-/** 현재 브랜치 이름. detached HEAD면 짧은 커밋 해시를 반환한다. */
+/**
+ * 현재 브랜치 이름. detached HEAD면 짧은 커밋 해시를 반환한다.
+ *
+ * `rev-parse --abbrev-ref HEAD` 를 쓰지 않는다. 그 경로(`shorten_unambiguous_ref`)는
+ * 이름을 **29바이트에서 자르고**, 한글 브랜치는 글자 중간이 잘려 깨진 문자로 끝난다
+ * (Apple Git 2.39.5 에서 확인: `feature/GRMWEB3-1639-다인-…` → `…다인-\uFFFD`).
+ * `branch --show-current` 는 전체 이름을 그대로 준다.
+ */
 export async function currentBranch(repo) {
+  const shown = (await git(repo, ['branch', '--show-current'], { allowFail: true })).trim()
+  if (shown) return shown
+
+  // git 2.22 미만이면 --show-current 가 없다. 그때만 옛 경로로 떨어진다.
   const branch = (await git(repo, ['rev-parse', '--abbrev-ref', 'HEAD'], { allowFail: true })).trim()
   if (branch && branch !== 'HEAD') return branch
   const sha = (await git(repo, ['rev-parse', '--short', 'HEAD'], { allowFail: true })).trim()
@@ -118,14 +129,31 @@ async function numstat(repo, args) {
   return map
 }
 
-/** untracked 파일의 추가 줄 수를 센다. 바이너리는 null. */
-async function untrackedStat(repo, path) {
-  const raw = await git(repo, ['diff', '--numstat', '--no-index', '--', '/dev/null', path], {
+/**
+ * untracked 파일의 추가 줄 수를 센다. 바이너리는 null.
+ *
+ * 줄 수를 셀 수 없을 때 그냥 "바이너리"라고 하면 거짓말이 되는 경우가 있다 —
+ * **심볼릭 링크**다. worktree 안의 `.claude -> ../.claude` 처럼 도구가 만든 링크가
+ * 변경 목록에 매번 뜨는데, "바이너리 파일"로 보이면 무엇인지 알 수 없다.
+ * 링크면 가리키는 곳을 함께 돌려준다.
+ */
+async function untrackedStat(repo, relPath) {
+  const raw = await git(repo, ['diff', '--numstat', '--no-index', '--', '/dev/null', relPath], {
     allowFail: true,
   })
   const m = /^(\d+|-)\t/.exec(raw)
-  if (!m) return { additions: null, deletions: 0 }
-  return { additions: m[1] === '-' ? null : Number(m[1]), deletions: 0 }
+  if (m) return { additions: m[1] === '-' ? null : Number(m[1]), deletions: 0 }
+
+  // 셀 수 없었다. 링크라서 그런 것인지 확인한다.
+  try {
+    const stat = await fs.lstat(path.resolve(repo, relPath))
+    if (stat.isSymbolicLink()) {
+      return { additions: null, deletions: 0, link: await fs.readlink(path.resolve(repo, relPath)) }
+    }
+  } catch {
+    // 확인 못 하면 그냥 셀 수 없는 것으로 둔다
+  }
+  return { additions: null, deletions: 0 }
 }
 
 /**

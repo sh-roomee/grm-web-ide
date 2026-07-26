@@ -73,6 +73,8 @@ x-grmide-token: <토큰>
 - `status`: `modified` `added` `deleted` `renamed` `copied` `typechange`
   `untracked` `conflicted` `unknown`
 - `additions` / `deletions`가 `null`이면 바이너리.
+- 심볼릭 링크면 `link`에 가리키는 경로가 담긴다 (`{"path": ".claude", "link": "../.claude"}`).
+  줄 수를 셀 수 없는 것이 전부 바이너리는 아니라서 구분한다.
 - `origPath`는 rename/copy일 때만 채워진다.
 
 ## GET /api/diff

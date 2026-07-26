@@ -78,24 +78,32 @@ function truncate(text, max) {
   return `${out}…`
 }
 
-/** 추가/삭제 줄 수. 바이너리(null)는 세지 않고 따로 표시한다. */
+/**
+ * 추가/삭제 줄 수. 줄 수를 셀 수 없는 것은 따로 표시한다.
+ *
+ * 심볼릭 링크를 "바이너리"로 세면 거짓말이 된다 — worktree 안의 `.claude` 링크처럼
+ * 도구가 만든 링크가 매번 목록에 뜨는데 정체를 알 수 없게 된다.
+ */
 function countLines(files) {
   let additions = 0
   let deletions = 0
   let binary = 0
+  let links = 0
   for (const f of files) {
-    if (f.additions === null || f.deletions === null) binary += 1
+    if (f.link) links += 1
+    else if (f.additions === null || f.deletions === null) binary += 1
     additions += f.additions ?? 0
     deletions += f.deletions ?? 0
   }
-  return { additions, deletions, binary }
+  return { additions, deletions, binary, links }
 }
 
-function lineDelta({ additions, deletions, binary }, { countBinary = true } = {}) {
+function lineDelta({ additions, deletions, binary, links = 0 }, { countBinary = true } = {}) {
   const parts = []
   if (additions) parts.push(c.green(`+${additions}`))
   if (deletions) parts.push(c.red(`-${deletions}`))
   if (binary) parts.push(c.dim(countBinary ? `바이너리 ${binary}` : '바이너리'))
+  if (links) parts.push(c.dim(countBinary ? `링크 ${links}` : '링크'))
   return parts.join(' ')
 }
 

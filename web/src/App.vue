@@ -861,6 +861,7 @@ function onKey(event) {
               ? '기준점 이후'
               : tabs.active.value.sub
           "
+          :link="activeStatusFile?.link ?? ''"
           :can-compare-base="Boolean(baseline) && tabs.active.value.kind === 'worktree'"
           :compare-base="compareBase"
           :comments-for="commentsForActive"
