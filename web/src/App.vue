@@ -5,6 +5,7 @@ import ChangeList from './components/ChangeList.vue'
 import CommitList from './components/CommitList.vue'
 import DiffViewer from './components/DiffViewer.vue'
 import SearchEverywhere from './components/SearchEverywhere.vue'
+import ReviewSheet from './components/ReviewSheet.vue'
 import TabBar from './components/TabBar.vue'
 import { useReview } from './composables/useReview.js'
 import { useHistory } from './composables/useHistory.js'
@@ -48,6 +49,10 @@ const diffViewer = ref(null) // ⌘F를 넘겨주기 위한 참조
 const tabs = useTabs()
 const comments = useComments()
 const copied = ref(false)
+const reviewOpen = ref(false)
+// 리뷰 시트에서 고른 코멘트와, 그것으로 미리 만들어 둔 프롬프트
+const pickedIds = ref([])
+const pickedPrompt = ref('')
 
 /** 지금 보고 있는 파일의 줄별 코멘트. DiffViewer가 줄마다 물어본다. */
 function commentsForActive(side, line) {
@@ -66,10 +71,50 @@ async function addComment(draft) {
   })
 }
 
-async function copyPrompt() {
-  const ok = await comments.copyPrompt()
+async function copyPrompt(ids = null) {
+  const ok = await comments.copyPrompt(ids)
   copied.value = ok
   if (ok) setTimeout(() => (copied.value = false), 1600)
+}
+
+/**
+ * 고른 코멘트로 만든 프롬프트를 **미리** 받아 둔다.
+ *
+ * 복사할 때 받아 오면 늦다 — `await` 하나만 지나도 브라우저가 클릭 제스처를
+ * 끝난 것으로 보고 클립보드 권한을 회수한다.
+ */
+watch([pickedIds, () => comments.comments.value], async ([ids]) => {
+  if (!ids.length) {
+    pickedPrompt.value = ''
+    return
+  }
+  try {
+    pickedPrompt.value = (await api.fetchComments(ids)).prompt
+  } catch {
+    pickedPrompt.value = ''
+  }
+})
+
+/**
+ * 고른 코멘트를 프롬프트로 넘기고 시트를 닫는다.
+ *
+ * 복사가 이 화면의 목적이라, 담고 나면 사람은 터미널로 간다. 시트를 열어 두면
+ * 성공 표시(헤더의 ✓ 복사됨)를 가린다.
+ */
+async function sendPrompt() {
+  await copyPrompt(pickedPrompt.value)
+  reviewOpen.value = false
+}
+
+/**
+ * 리뷰 스레드에서 파일을 열면 시트를 닫는다.
+ *
+ * 열어 놓은 채로 두면 방금 연 그 줄을 시트가 가린다 — 보러 가는 동작인데
+ * 목적지가 안 보이면 소용이 없다.
+ */
+function openFromReview({ path, line = null }) {
+  reviewOpen.value = false
+  openFile({ path, line })
 }
 
 // 히스토리 탭을 처음 열 때만 로그와 브랜치 목록을 받는다
@@ -457,8 +502,9 @@ function onKey(event) {
   const meta = event.metaKey || event.ctrlKey
 
   // Esc는 어디에 포커스가 있든 열린 것을 닫는다
-  if (event.key === 'Escape' && paletteOpen.value) {
+  if (event.key === 'Escape' && (paletteOpen.value || reviewOpen.value)) {
     paletteOpen.value = false
+    reviewOpen.value = false
     return
   }
 
@@ -576,15 +622,21 @@ function onKey(event) {
       </span>
       <span class="spacer" />
 
-      <!-- 코멘트를 AI에게 넘기는 경로 -->
+      <!-- 코멘트를 AI에게 넘기는 경로. 누르면 리뷰 스레드가 열린다 -->
       <template v-if="comments.comments.value.length">
         <button
           class="copy-btn"
           :class="{ done: copied }"
-          title="코멘트를 프롬프트로 만들어 클립보드에 담는다. 터미널에 붙여넣으면 된다"
-          @click="copyPrompt()"
+          title="리뷰 스레드 — 모아 보고, 보낼 것을 골라 프롬프트로 넘긴다"
+          @click="reviewOpen = true"
         >
-          {{ copied ? '✓ 복사됨' : `코멘트 ${comments.comments.value.length} · 프롬프트 복사` }}
+          <template v-if="copied">✓ 복사됨</template>
+          <template v-else>
+            리뷰 {{ comments.comments.value.length }}
+            <span v-if="comments.appliedOnes.value.length" class="done-count">
+              · 반영 {{ comments.appliedOnes.value.length }}
+            </span>
+          </template>
         </button>
         <button class="drop-btn" title="코멘트 모두 지우기" @click="comments.clear()">✕</button>
       </template>
@@ -778,6 +830,18 @@ function onKey(event) {
       @open-file="openFile($event)"
       @open-commit="openCommit($event)"
     />
+
+    <ReviewSheet
+      :open="reviewOpen"
+      :comments="comments.comments.value"
+      @close="reviewOpen = false"
+      @open-file="openFromReview($event)"
+      @delete="comments.remove($event)"
+      @delete-many="comments.removeMany($event)"
+      :picked="pickedIds"
+      @update:picked="pickedIds = $event"
+      @copy="sendPrompt()"
+    />
   </div>
 </template>
 
@@ -900,6 +964,11 @@ function onKey(event) {
 .drop-btn:hover {
   color: var(--fg);
   background: rgba(118, 118, 128, 0.24);
+}
+
+.done-count {
+  opacity: 0.8;
+  font-weight: 400;
 }
 
 /* 코멘트를 프롬프트로 복사 */

@@ -8,6 +8,7 @@ import { parseUnifiedDiff } from './diff.js'
 import { highlightInfo } from './language.js'
 import { analyzeRisks, splitDiffFiles } from './risks.js'
 import { previewInfo } from './preview.js'
+import { attachStatus } from './resolve.js'
 import {
   readState,
   saveReviewed,
@@ -348,12 +349,48 @@ export function createServer({ repo, token, gitDir, dev = false }) {
     }),
   )
 
+  /**
+   * 코멘트가 달린 파일들을 경로당 한 번만 읽는다.
+   *
+   * 반영 판정에 필요한 것은 "지금 그 코드가 파일에 있나"뿐이라, 파일 하나를
+   * 여러 코멘트가 함께 쓴다.
+   */
+  async function readCommentedFiles(comments) {
+    const paths = [...new Set(comments.filter((c) => !c.sha).map((c) => c.path))]
+    const files = new Map()
+    await Promise.all(
+      paths.map(async (relPath) => {
+        try {
+          const abs = safeJoin(repo, relPath)
+          const [text, stat] = await Promise.all([
+            fs.promises.readFile(abs, 'utf8'),
+            fs.promises.stat(abs),
+          ])
+          files.set(relPath, { text, mtime: stat.mtimeMs })
+        } catch {
+          files.set(relPath, { text: null, mtime: null })
+        }
+      }),
+    )
+    return files
+  }
+
   // --- 리뷰 코멘트: 사람의 판단을 AI에게 되돌리는 경로
   app.get(
     '/api/comments',
-    wrap(async (_req, res) => {
+    wrap(async (req, res) => {
       const state = await readState(gitDir)
-      res.json({ comments: state.comments, prompt: buildPrompt(state.comments) })
+      const files = await readCommentedFiles(state.comments)
+      const comments = attachStatus(state.comments, files)
+
+      // ids를 주면 그것만으로 프롬프트를 만든다 — 보낼 것을 골라 보내는 화면용
+      const wanted =
+        typeof req.query.ids === 'string' && req.query.ids
+          ? new Set(req.query.ids.split(',').filter(Boolean))
+          : null
+      const chosen = wanted ? state.comments.filter((c) => wanted.has(c.id)) : state.comments
+
+      res.json({ comments, prompt: buildPrompt(chosen) })
     }),
   )
 
@@ -397,6 +434,13 @@ export function createServer({ repo, token, gitDir, dev = false }) {
       if (req.query.all === '1') {
         await clearComments(gitDir)
         return res.json({ ok: true })
+      }
+      // 반영된 것 정리 — 한 번에 여러 개를 지운다
+      if (typeof req.query.ids === 'string' && req.query.ids) {
+        const ids = req.query.ids.split(',').filter(Boolean)
+        let count = 0
+        for (const id of ids) if (await removeComment(gitDir, id)) count += 1
+        return res.json({ ok: true, removed: count })
       }
       const removed = await removeComment(gitDir, req.query.id)
       if (!removed) throw Object.assign(new Error('코멘트를 찾을 수 없습니다'), { status: 404 })

@@ -87,7 +87,9 @@ export const saveReviewed = (marks) =>
   request('/api/reviewed', { method: 'PUT', body: JSON.stringify({ marks }) })
 
 // 리뷰 코멘트 — 사람의 판단을 AI에게 되돌리는 경로
-export const fetchComments = () => request('/api/comments')
+/** ids를 주면 그 코멘트들만으로 프롬프트를 만들어 온다 (골라 보내기). */
+export const fetchComments = (ids = null) =>
+  request(ids?.length ? `/api/comments?ids=${ids.map(encodeURIComponent).join(',')}` : '/api/comments')
 
 export const addComment = (comment) =>
   request('/api/comments', { method: 'POST', body: JSON.stringify(comment) })
@@ -97,6 +99,10 @@ export const editComment = (id, text) =>
 
 export const deleteComment = (id) =>
   request(`/api/comments?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+
+/** 여러 개를 한 번에 — "반영된 것 정리"용 */
+export const deleteComments = (ids) =>
+  request(`/api/comments?ids=${ids.map(encodeURIComponent).join(',')}`, { method: 'DELETE' })
 
 export const clearComments = () => request('/api/comments?all=1', { method: 'DELETE' })
 

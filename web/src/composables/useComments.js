@@ -32,6 +32,15 @@ export function useComments() {
 
   const countFor = (path) => comments.value.filter((c) => c.path === path).length
 
+  /**
+   * 반영 판정은 서버가 붙여 준다 (`status.state`).
+   *  - open    아직 그 코드가 그대로다
+   *  - applied 그 코드가 바뀌었다 = AI가 손댔다
+   *  - frozen  커밋에 단 코멘트라 판정하지 않는다
+   */
+  const openOnes = computed(() => comments.value.filter((c) => c.status?.state !== 'applied'))
+  const appliedOnes = computed(() => comments.value.filter((c) => c.status?.state === 'applied'))
+
   async function load() {
     try {
       const res = await api.fetchComments()
@@ -54,6 +63,7 @@ export function useComments() {
   const add = wrap(api.addComment)
   const edit = wrap(api.editComment)
   const remove = wrap(api.deleteComment)
+  const removeMany = wrap(api.deleteComments)
   const clear = wrap(api.clearComments)
 
   /**
@@ -62,15 +72,24 @@ export function useComments() {
    * 파일로 떨어뜨리지 않고 클립보드를 쓰는 이유: 어떤 AI 도구를 쓰든 붙여넣기는
    * 되고, 저장소에 파일을 만들면 그것이 다시 변경 목록에 떠서 리뷰를 방해한다.
    */
-  async function copyPrompt() {
-    if (!prompt.value) return false
+  /**
+   * 프롬프트를 클립보드에 담는다. 담을 문장을 넘기면 그것을, 아니면 전체를 담는다.
+   *
+   * **클릭 핸들러 안에서 아무것도 기다리지 않는다.** 브라우저는 `await` 하나만
+   * 지나도 사용자 제스처가 끝난 것으로 보고 클립보드 권한을 회수한다. 골라 보내기를
+   * 만들면서 "선택한 것만 프롬프트를 받아 오고 나서 복사"로 짰다가, 복사가 조용히
+   * 실패했다. 그래서 문장은 미리 받아 두고 여기서는 담기만 한다.
+   */
+  async function copyPrompt(text = null) {
+    const payload = text ?? prompt.value
+    if (!payload) return false
     try {
-      await navigator.clipboard.writeText(prompt.value)
+      await navigator.clipboard.writeText(payload)
       return true
     } catch {
       // 클립보드 권한이 없을 때의 대체 경로
       const area = document.createElement('textarea')
-      area.value = prompt.value
+      area.value = payload
       area.style.position = 'fixed'
       area.style.opacity = '0'
       document.body.appendChild(area)
@@ -81,5 +100,20 @@ export function useComments() {
     }
   }
 
-  return { comments, prompt, error, forLine, countFor, load, add, edit, remove, clear, copyPrompt }
+  return {
+    comments,
+    prompt,
+    error,
+    openOnes,
+    appliedOnes,
+    forLine,
+    countFor,
+    load,
+    add,
+    edit,
+    remove,
+    removeMany,
+    clear,
+    copyPrompt,
+  }
 }
