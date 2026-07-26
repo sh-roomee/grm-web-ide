@@ -7,12 +7,14 @@ import DiffViewer from './components/DiffViewer.vue'
 import SearchEverywhere from './components/SearchEverywhere.vue'
 import ReviewSheet from './components/ReviewSheet.vue'
 import ContextSheet from './components/ContextSheet.vue'
+import SummarySheet from './components/SummarySheet.vue'
 import TabBar from './components/TabBar.vue'
 import { useReview } from './composables/useReview.js'
 import { useHistory } from './composables/useHistory.js'
 import { useTabs } from './composables/useTabs.js'
 import { useComments } from './composables/useComments.js'
 import { useContext } from './composables/useContext.js'
+import { copyToClipboard } from './lib/clipboard.js'
 import * as api from './api.js'
 
 const repo = ref(null)
@@ -53,6 +55,9 @@ const comments = useComments()
 const basket = useContext()
 const copied = ref(false)
 const contextOpen = ref(false)
+const summaryOpen = ref(false)
+const summaryText = ref('')
+const summaryLoading = ref(false)
 const reviewOpen = ref(false)
 // 리뷰 시트에서 고른 코멘트와, 그것으로 미리 만들어 둔 프롬프트
 const pickedIds = ref([])
@@ -79,6 +84,32 @@ async function copyPrompt(ids = null) {
   const ok = await comments.copyPrompt(ids)
   copied.value = ok
   if (ok) setTimeout(() => (copied.value = false), 1600)
+}
+
+/**
+ * 사이클 요약을 받아 보여준다.
+ *
+ * 열 때 받는다 — 열어 둔 채로 파일이 바뀌면 낡지만, 요약은 "지금 이 순간"을
+ * 넘기려고 여는 것이라 열 때가 곧 그 순간이다. 문장을 미리 들고 있어야
+ * 복사 버튼이 클릭 제스처를 잃지 않는다.
+ */
+async function openSummary() {
+  summaryOpen.value = true
+  summaryLoading.value = true
+  try {
+    summaryText.value = (await api.fetchSummary()).summary
+  } catch (err) {
+    summaryText.value = `요약을 만들지 못했습니다: ${err.message}`
+  } finally {
+    summaryLoading.value = false
+  }
+}
+
+async function copySummary() {
+  const ok = await copyToClipboard(summaryText.value)
+  copied.value = ok
+  if (ok) setTimeout(() => (copied.value = false), 1600)
+  summaryOpen.value = false
 }
 
 /** 컨텍스트에 담는다. 어디서 담든 여기로 온다. */
@@ -524,10 +555,14 @@ function onKey(event) {
   const meta = event.metaKey || event.ctrlKey
 
   // Esc는 어디에 포커스가 있든 열린 것을 닫는다
-  if (event.key === 'Escape' && (paletteOpen.value || reviewOpen.value || contextOpen.value)) {
+  if (
+    event.key === 'Escape' &&
+    (paletteOpen.value || reviewOpen.value || contextOpen.value || summaryOpen.value)
+  ) {
     paletteOpen.value = false
     reviewOpen.value = false
     contextOpen.value = false
+    summaryOpen.value = false
     return
   }
 
@@ -644,6 +679,16 @@ function onKey(event) {
         {{ repo.head.shortSha }} · {{ repo.head.subject }}
       </span>
       <span class="spacer" />
+
+      <!-- 이번 사이클에 무슨 일이 있었나 -->
+      <button
+        v-if="view === 'changes' && progress.total"
+        class="basket-btn"
+        title="기준점 이후 무엇이 바뀌고 무엇이 남았는지 한 장으로 — 다음 지시에 붙여 넣는다"
+        @click="openSummary()"
+      >
+        요약
+      </button>
 
       <!-- 읽을 곳을 AI에게 넘기는 경로 -->
       <button
@@ -865,6 +910,14 @@ function onKey(event) {
       @open-file="openFile($event)"
       @open-commit="openCommit($event)"
       @add-context="stash($event)"
+    />
+
+    <SummarySheet
+      :open="summaryOpen"
+      :text="summaryText"
+      :loading="summaryLoading"
+      @close="summaryOpen = false"
+      @copy="copySummary()"
     />
 
     <ContextSheet

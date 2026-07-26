@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 
 import * as api from '../api.js'
+import { copyToClipboard } from '../lib/clipboard.js'
 
 /**
  * 리뷰 코멘트.
@@ -75,30 +76,10 @@ export function useComments() {
   /**
    * 프롬프트를 클립보드에 담는다. 담을 문장을 넘기면 그것을, 아니면 전체를 담는다.
    *
-   * **클릭 핸들러 안에서 아무것도 기다리지 않는다.** 브라우저는 `await` 하나만
-   * 지나도 사용자 제스처가 끝난 것으로 보고 클립보드 권한을 회수한다. 골라 보내기를
-   * 만들면서 "선택한 것만 프롬프트를 받아 오고 나서 복사"로 짰다가, 복사가 조용히
-   * 실패했다. 그래서 문장은 미리 받아 두고 여기서는 담기만 한다.
+   * 골라 보내기를 만들면서 "고른 것으로 프롬프트를 받아 온 다음 복사"로 짰다가
+   * 복사가 조용히 실패했다. 이유는 `lib/clipboard.js` 주석에 있다.
    */
-  async function copyPrompt(text = null) {
-    const payload = text ?? prompt.value
-    if (!payload) return false
-    try {
-      await navigator.clipboard.writeText(payload)
-      return true
-    } catch {
-      // 클립보드 권한이 없을 때의 대체 경로
-      const area = document.createElement('textarea')
-      area.value = payload
-      area.style.position = 'fixed'
-      area.style.opacity = '0'
-      document.body.appendChild(area)
-      area.select()
-      const ok = document.execCommand('copy')
-      area.remove()
-      return ok
-    }
-  }
+  const copyPrompt = (text = null) => copyToClipboard(text ?? prompt.value)
 
   return {
     comments,

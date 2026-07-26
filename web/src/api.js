@@ -106,6 +106,9 @@ export const deleteComments = (ids) =>
 
 export const clearComments = () => request('/api/comments?all=1', { method: 'DELETE' })
 
+/** 사이클 요약 — 기준점 이후 무엇이 있었나 */
+export const fetchSummary = () => request('/api/summary')
+
 // --- 컨텍스트 바구니: "이것도 같이 봐"를 모아 두는 곳
 export const fetchContext = () => request('/api/context')
 

@@ -9,6 +9,7 @@ import { highlightInfo } from './language.js'
 import { analyzeRisks, splitDiffFiles } from './risks.js'
 import { previewInfo } from './preview.js'
 import { attachStatus } from './resolve.js'
+import { buildCycleSummary } from './cycle.js'
 import {
   normalizeItem,
   itemKey,
@@ -23,6 +24,7 @@ import {
   removeComment,
   clearComments,
   buildPrompt,
+  saveBaselineAt,
   addContext,
   removeContext,
   clearContext,
@@ -164,7 +166,10 @@ export function createServer({ repo, token, gitDir, dev = false }) {
   app.post(
     '/api/baseline',
     wrap(async (_req, res) => {
-      res.json({ tree: await gitApi.setBaseline(repo, gitDir) })
+      const tree = await gitApi.setBaseline(repo, gitDir)
+      // 사이클 요약이 "기준점 이후 몇 분"을 말하려면 시각이 필요하다
+      await saveBaselineAt(gitDir, new Date().toISOString())
+      res.json({ tree })
     }),
   )
 
@@ -172,6 +177,7 @@ export function createServer({ repo, token, gitDir, dev = false }) {
     '/api/baseline',
     wrap(async (_req, res) => {
       await gitApi.clearBaseline(repo)
+      await saveBaselineAt(gitDir, null)
       res.json({ ok: true })
     }),
   )
@@ -454,6 +460,48 @@ export function createServer({ repo, token, gitDir, dev = false }) {
       const removed = await removeComment(gitDir, req.query.id)
       if (!removed) throw Object.assign(new Error('코멘트를 찾을 수 없습니다'), { status: 404 })
       res.json({ ok: true })
+    }),
+  )
+
+  /**
+   * 사이클 요약 — 다음 지시를 쓸 때 사람이 다시 훑지 않아도 되게.
+   *
+   * 요약을 지어내지 않는다. 코드가 무엇을 하는지는 터미널의 AI가 이미 안다.
+   * 여기서 모으는 것은 AI가 알 수 없는 것들이다 — 사람이 무엇을 확인했는지,
+   * 무엇이 남았는지, 어떤 코멘트가 아직 반영되지 않았는지.
+   */
+  app.get(
+    '/api/summary',
+    wrap(async (_req, res) => {
+      const [status, state, rawDiff] = await Promise.all([
+        gitApi.status(repo),
+        readState(gitDir),
+        gitApi.worktreeDiff(repo, gitDir),
+      ])
+      const riskResult = analyzeRisks(splitDiffFiles(rawDiff))
+
+      // 확인 표시는 클라이언트와 같은 규칙으로 읽는다 (지문이 다르면 풀린 것이다)
+      const markKey = (file) => `${file.staged ? 'staged' : 'work'}:${file.path}`
+      const fingerprint = (file) =>
+        `${file.status}:${file.additions ?? '-'}:${file.deletions ?? '-'}`
+
+      const files = [...status.conflicted, ...status.staged, ...status.unstaged].map((file) => ({
+        ...file,
+        reviewed: state.reviewed[markKey(file)] === fingerprint(file),
+      }))
+
+      const commentFiles = await readCommentedFiles(state.comments)
+      const comments = attachStatus(state.comments, commentFiles)
+
+      res.json({
+        summary: buildCycleSummary({
+          files,
+          risks: riskResult.files ?? {},
+          comments,
+          baselineAt: state.baselineAt ?? null,
+          now: Date.now(),
+        }),
+      })
     }),
   )
 

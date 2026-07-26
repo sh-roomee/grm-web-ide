@@ -22,7 +22,14 @@ const MAX_COMMENTS = 500
 // 바구니는 "지금 사이클에 볼 곳"이라 길어질 이유가 없다
 const MAX_CONTEXT = 40
 
-const emptyState = () => ({ version: 1, comments: [], reviewed: {}, context: [] })
+const emptyState = () => ({
+  version: 1,
+  comments: [],
+  reviewed: {},
+  context: [],
+  // 기준점을 잡은 시각. 사이클 요약이 "기준점 이후 22분"을 말하는 근거다.
+  baselineAt: null,
+})
 
 function statePath(gitDir) {
   return path.join(gitDir, FILE_NAME)
@@ -55,6 +62,7 @@ export async function readState(gitDir) {
       comments: parsed.comments ?? [],
       reviewed: parsed.reviewed ?? {},
       context: parsed.context ?? [],
+      baselineAt: parsed.baselineAt ?? null,
     }
   } catch {
     // 없거나 깨졌으면 빈 상태로 시작한다. 리뷰 메모 때문에 도구가 멈추면 안 된다.
@@ -166,6 +174,13 @@ export async function clearComments(gitDir) {
  * 항목별 API로 쪼개지 않는 이유: 토글·전체 확인·정리(prune)가 모두 맵 전체를
  * 다시 쓰는 동작이고, 크기도 파일 수만큼(수십 개)이라 통째로 보내는 편이 단순하다.
  */
+export async function saveBaselineAt(gitDir, iso) {
+  const state = await readState(gitDir)
+  state.baselineAt = iso
+  await writeState(gitDir, state)
+  return iso
+}
+
 export async function saveReviewed(gitDir, marks) {
   const state = await readState(gitDir)
   state.reviewed = marks && typeof marks === 'object' ? marks : {}

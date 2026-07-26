@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 
 import * as api from '../api.js'
+import { copyToClipboard } from '../lib/clipboard.js'
 
 /**
  * 컨텍스트 바구니.
@@ -57,23 +58,7 @@ export function useContext() {
   const clear = wrap(api.clearContext)
 
   /** 클릭 핸들러 안에서 아무것도 기다리지 않는다 (클립보드 권한). */
-  async function copyPrompt() {
-    if (!prompt.value) return false
-    try {
-      await navigator.clipboard.writeText(prompt.value)
-      return true
-    } catch {
-      const area = document.createElement('textarea')
-      area.value = prompt.value
-      area.style.position = 'fixed'
-      area.style.opacity = '0'
-      document.body.appendChild(area)
-      area.select()
-      const ok = document.execCommand('copy')
-      area.remove()
-      return ok
-    }
-  }
+  const copyPrompt = () => copyToClipboard(prompt.value)
 
   return { items, prompt, error, count, lastAdded, load, add, remove, clear, copyPrompt }
 }
