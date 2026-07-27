@@ -376,12 +376,14 @@ h2 {
 .code {
   margin: 6px 0 0;
   padding: 7px 10px;
-  background: var(--bg);
+  background: var(--bg-code);
   border-radius: var(--r-sm);
   color: var(--fg-dim);
   font-family: var(--mono);
   font-size: 11px;
-  line-height: var(--row-height);
+  /* 코멘트가 인용한 짧은 조각이라 --row-height(코드 배율에 연동)를 쓰지 않는다.
+     본문 11px은 그대로인데 줄 높이만 따라 늘어나면 성기게 벌어진다. */
+  line-height: 1.65;
   white-space: pre;
   overflow-x: auto;
   max-height: 88px;

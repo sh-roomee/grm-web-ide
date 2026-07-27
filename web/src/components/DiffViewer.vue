@@ -990,10 +990,16 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
 .scroll.previewing > * {
   min-height: 0;
 }
+/**
+ * 코드를 읽는 표면. 캔버스보다 한 단계 밝고 글자는 흰색에서 한 단계 내려온다.
+ * 왜 그래야 하는지는 style.css의 --bg-code 주석에 있다.
+ */
 .scroll:not(.previewing) {
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: var(--code-font-size);
   line-height: var(--row-height);
+  background: var(--bg-code);
+  color: var(--fg-code);
 }
 
 .notice {
@@ -1014,7 +1020,7 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
   color: var(--fg-faint);
   border-top: 0.5px solid var(--border);
   border-bottom: 0.5px solid var(--border);
-  font-size: 11px;
+  font-size: 0.88em;
   position: sticky;
   top: 0;
   z-index: 1;
@@ -1026,13 +1032,18 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
   white-space: nowrap;
 }
 
+/**
+ * 껍데기 폭은 em으로 잡는다. .line은 --code-font-size를 물려받으므로 글자를 키우면
+ * 번호칸도 같이 커진다 — px로 박아 두면 17px에서 네 자리 줄번호가 잘린다.
+ * 4.2em은 12.5px에서 52.5px, 지금까지의 폭이다.
+ */
 .line {
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr) 52px minmax(0, 1fr);
+  grid-template-columns: 4.2em minmax(0, 1fr) 4.2em minmax(0, 1fr);
 }
 /* 파일 하나를 읽는 모드는 한 컬럼이다 */
 .line.single {
-  grid-template-columns: 52px minmax(0, 1fr);
+  grid-template-columns: 4.2em minmax(0, 1fr);
 }
 
 /**
@@ -1043,13 +1054,13 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
  */
 .iline {
   display: grid;
-  grid-template-columns: 46px 14px minmax(0, 1fr);
+  grid-template-columns: 3.7em 1.15em minmax(0, 1fr);
 }
 .sign {
   text-align: center;
   user-select: none;
   color: var(--fg-faint);
-  font-size: 11px;
+  font-size: 0.88em;
 }
 
 .iline.t-del .code,
@@ -1085,7 +1096,7 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
   border-right: 0.5px solid var(--border);
   user-select: none;
   font-variant-numeric: tabular-nums;
-  font-size: 10.5px;
+  font-size: 0.84em;
 }
 .gutter.clickable {
   cursor: pointer;
@@ -1120,7 +1131,9 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
   display: flex;
   align-items: flex-start;
   gap: 9px;
-  padding: 7px 14px 7px 56px;
+  /* 왼쪽 여백은 번호칸(4.2em) 너머에서 시작해 코드와 줄을 맞춘다. 글자 크기를
+     바꾸면 번호칸이 움직이므로 여기도 같은 식으로 따라가야 한다. */
+  padding: 7px 14px 7px calc(var(--code-font-size) * 4.2 + 4px);
   background: rgba(48, 209, 88, 0.09);
   border-left: 2px solid var(--status-added);
   font-family: var(--ui);

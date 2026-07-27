@@ -14,6 +14,7 @@ import { useHistory } from './composables/useHistory.js'
 import { useTabs } from './composables/useTabs.js'
 import { useComments } from './composables/useComments.js'
 import { useContext } from './composables/useContext.js'
+import { useCodeFont } from './composables/useCodeFont.js'
 import { copyToClipboard } from './lib/clipboard.js'
 import * as api from './api.js'
 
@@ -53,7 +54,17 @@ const diffViewer = ref(null) // ⌘F를 넘겨주기 위한 참조
 const tabs = useTabs()
 const comments = useComments()
 const basket = useContext()
+const codeFont = useCodeFont()
 const copied = ref(false)
+
+// 글자 크기를 바꾼 직후에만 지금 크기를 알려 준다
+const fontBadge = ref(false)
+let fontBadgeTimer = 0
+watch(codeFont.size, () => {
+  fontBadge.value = true
+  clearTimeout(fontBadgeTimer)
+  fontBadgeTimer = setTimeout(() => (fontBadge.value = false), 1100)
+})
 const contextOpen = ref(false)
 const summaryOpen = ref(false)
 const summaryText = ref('')
@@ -592,6 +603,32 @@ function onKey(event) {
     return
   }
 
+  /**
+   * ⌘+/⌘-/⌘0 으로 코드 글자 크기. 브라우저 확대를 대신 가로챈다 — 브라우저 확대는
+   * 바와 목록까지 같이 키워서 한 화면에 남는 코드가 줄어든다. 여기서는 코드 영역만
+   * 움직인다.
+   *
+   * ⌘+는 shift 없이 누르면 '=', 누르면 '+'로 온다. 숫자패드는 'Add'/'Subtract'다.
+   */
+  if (meta && !event.altKey) {
+    const k = event.key
+    if (k === '=' || k === '+' || k === 'Add') {
+      event.preventDefault()
+      codeFont.grow()
+      return
+    }
+    if (k === '-' || k === '_' || k === 'Subtract') {
+      event.preventDefault()
+      codeFont.shrink()
+      return
+    }
+    if (k === '0') {
+      event.preventDefault()
+      codeFont.reset()
+      return
+    }
+  }
+
   // ⌥←/→ 로 탭 이동. ⌘⇧[ ] 는 브라우저가 이미 쓴다.
   if (event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
     event.preventDefault()
@@ -942,6 +979,15 @@ function onKey(event) {
       @update:picked="pickedIds = $event"
       @copy="sendPrompt()"
     />
+
+    <!--
+      글자 크기를 바꿨을 때만 잠깐 뜬다. ⌘+/⌘-는 눌러도 화면이 조금씩만 움직여서
+      눌린 건지 브라우저가 먹은 건지 알기 어렵다. 지금 몇 px인지 말해 준다.
+    -->
+    <div v-if="fontBadge" class="font-badge">
+      {{ codeFont.size.value }}px
+      <span v-if="codeFont.isDefault.value">기본</span>
+    </div>
   </div>
 </template>
 
@@ -1311,5 +1357,29 @@ kbd {
   font-family: var(--ui);
   font-size: 11.5px;
   font-weight: 500;
+}
+
+/* ⌘+/⌘- 직후에만 뜨는 배지. 시트처럼 흐림 위에 얹어 코드를 가리지 않는다 */
+.font-badge {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 40;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--r-pill);
+  background: var(--bg-sheet);
+  backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-pop);
+  color: var(--fg);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.font-badge span {
+  color: var(--fg-faint);
+  font-size: 10.5px;
 }
 </style>
