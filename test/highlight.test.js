@@ -36,6 +36,53 @@ test('javascript: 키워드/문자열/주석/함수를 구분한다', () => {
   assert.equal(classOf(spans, '// 끝'), 'comment')
 })
 
+test('java 플러그인이 레지스트리에 있다', () => {
+  // 등록을 빠뜨리면 화면은 조용히 색 없이 나온다 — 테스트로 잡는다
+  assert.equal(resolvePlugin('java').id, 'java')
+})
+
+test('java: 애너테이션·타입·키워드를 구분한다', () => {
+  const line = '@Override public ResponseEntity<RoomDto> getRoom(@PathVariable Long id) {'
+  const spans = highlightLine('java', line, null, {})
+  // 애너테이션은 코드가 아니라 표시다. 한 덩어리로 떨어져야 한다
+  assert.equal(classOf(spans, '@Override'), 'entity')
+  assert.equal(classOf(spans, '@PathVariable'), 'entity')
+  assert.equal(classOf(spans, 'public'), 'keyword')
+  assert.equal(classOf(spans, 'ResponseEntity'), 'type')
+  assert.equal(classOf(spans, 'RoomDto'), 'type')
+  assert.equal(classOf(spans, 'getRoom'), 'function')
+  // 소문자 식별자는 타입이 아니다
+  assert.equal(classOf(spans, 'id'), undefined)
+})
+
+test('java: 기본형은 타입, 리터럴은 키워드', () => {
+  const spans = highlightLine('java', 'private static final boolean muted = false;', null, {})
+  assert.equal(classOf(spans, 'boolean'), 'type')
+  assert.equal(classOf(spans, 'false'), 'keyword')
+  assert.equal(classOf(spans, 'private'), 'keyword')
+})
+
+test('java: 문자열·char·숫자·주석', () => {
+  const spans = highlightLine('java', `String s = "a'b"; char c = 'x'; long n = 48_000L; // 끝`, null, {})
+  assert.equal(classOf(spans, `"a'b"`), 'string', '문자열 안의 아포스트로피에 속으면 안 된다')
+  assert.equal(classOf(spans, "'x'"), 'string')
+  assert.equal(classOf(spans, '48_000L'), 'number')
+  assert.equal(classOf(spans, '// 끝'), 'comment')
+})
+
+test('java: 주석 안의 따옴표에 속지 않는다', () => {
+  const spans = highlightLine('java', "int x = 1; // don't split here", null, {})
+  assert.equal(classOf(spans, "// don't split here"), 'comment')
+})
+
+test('java: 텍스트 블록과 hex/binary 리터럴', () => {
+  const block = highlightLine('java', '        String sql = """', null, {})
+  assert.equal(classOf(block, '"""'), 'string')
+  const nums = highlightLine('java', 'int mask = 0xFF | 0b1010;', null, {})
+  assert.equal(classOf(nums, '0xFF'), 'number')
+  assert.equal(classOf(nums, '0b1010'), 'number')
+})
+
 test('markup: 태그/디렉티브/속성/문자열을 구분한다', () => {
   const line = '<div v-else-if="isTeacherMode" class="room-setting-display-wrapper">'
   const spans = highlightLine('markup', line, null, {})
@@ -124,6 +171,7 @@ test('detectLanguage: 확장자로 언어를 고른다', () => {
   assert.equal(detectLanguage('a/b/main.ts'), 'javascript')
   assert.equal(detectLanguage('style.scss'), 'css')
   assert.equal(detectLanguage('ko.json'), 'json')
+  assert.equal(detectLanguage('src/main/java/RoomController.java'), 'java')
   assert.equal(detectLanguage('README.md'), 'plain')
 })
 
@@ -147,4 +195,21 @@ test('buildSpans: 변경 구간이 없으면 changed는 모두 false', () => {
   const spans = buildSpans(text, null, tokens)
   assert.equal(rendered(spans), text)
   assert.ok(spans.every((s) => !s.changed))
+})
+
+test('java: javadoc 중간 줄도 주석으로 칠한다', () => {
+  // 줄 단위 무상태라 블록 중간을 모르는 것이 원래 한계다. 자바는 파일마다
+  // javadoc 이 붙어서 그 한계가 첫 화면부터 보인다 — 줄 모양으로 메운다.
+  const mid = highlightLine('java', ' * 회의실 조회 API.', null, {})
+  assert.equal(classOf(mid, '* 회의실 조회 API.'), 'comment')
+
+  const close = highlightLine('java', ' */', null, {})
+  assert.equal(classOf(close, '*/'), 'comment')
+
+  const tag = highlightLine('java', '     * @param id 회의실 id', null, {})
+  assert.equal(classOf(tag, '* @param id 회의실 id'), 'comment')
+
+  // 곱셈은 왼쪽 피연산자가 같은 줄에 있으므로 이 규칙에 걸리지 않는다
+  const math = highlightLine('java', 'int n = a * b;', null, {})
+  assert.equal(classOf(math, '*'), 'operator')
 })

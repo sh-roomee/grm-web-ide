@@ -58,7 +58,7 @@ grmide  ──실행──▶  bin/grmide.js
 | `web/public/favicon.svg` | 파비콘. 지운 줄(빨강)·더한 줄(초록) 두 막대 |
 | `web/src/highlight/index.js` | 문법 강조 플러그인 레지스트리 + span 병합 |
 | `web/src/highlight/scanner.js` | 규칙 기반 토크나이저 (플러그인 공용) |
-| `web/src/highlight/languages/*.js` | 언어별 플러그인 |
+| `web/src/highlight/languages/*.js` | 언어별 플러그인 (js·markup·css·json·vue·java) |
 | `test/diff.test.js` | diff 파서 테스트 |
 | `test/highlight.test.js` | 문법 강조 / 구획 판단 테스트 |
 | `test/summary.test.js` | 터미널 요약 테스트 |
@@ -132,9 +132,20 @@ side-by-side 행 구조까지 만들어 보낸다.
 `languages/`에 파일을 만들어 등록하고, `server/language.js`의 확장자 표에 같은
 id를 넣으면 된다.
 
+언어마다 "그 언어를 읽을 때 눈이 먼저 찾는 것"이 다르다. js 는 키워드·문자열·호출이지만
+**java 는 타입과 애너테이션**이다. 그래서 java 플러그인은 `@Annotation` 을 한 덩어리로
+떼고 `UpperCamelCase` 식별자를 타입으로 본다 — 자바는 이름 관례가 강해 이 어림짐작이
+거의 맞고, 틀려도 색 하나가 다를 뿐이다. 기본형(`int`·`boolean`)은 타입, 리터럴
+(`true`·`null`)은 키워드로 나눠 시그니처가 빨리 읽히게 했다.
+
 **왜 서버가 아니라 클라이언트인가.** 강조는 표현의 문제이고, 서버 응답을
 언어별 span으로 부풀리면 페이로드가 몇 배로 커진다. 나중에 가상 스크롤을
 넣으면 보이는 줄만 칠하면 되므로 클라이언트가 맞는 자리다.
+
+javadoc 중간 줄(`* @param …`)은 예외로 뒀다. 줄 단위라 블록 중간을 모르는 것이 원래
+한계인데, 자바는 파일마다 클래스 위에 javadoc 이 붙어 그 한계가 **첫 화면부터** 보인다.
+그래서 `^\s*\*` 로 시작하는 줄은 주석으로 칠한다. 자바에만 두는 이유는 JS 라면
+`*next() {}`(제너레이터)일 수 있지만 자바에는 그 문법이 없어서다.
 
 **왜 줄 단위 무상태인가.** diff는 파일의 조각만 보여주므로 애초에 완전한 문맥이
 없다. 줄 단위로 끊으면 훨씬 단순하고, 대가로 여러 줄에 걸친 주석이나 템플릿

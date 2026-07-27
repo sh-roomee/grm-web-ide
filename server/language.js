@@ -27,6 +27,7 @@ const EXT_LANGUAGE = {
   '.less': 'css',
   '.json': 'json',
   '.jsonc': 'json',
+  '.java': 'java',
 }
 
 export function detectLanguage(filePath) {

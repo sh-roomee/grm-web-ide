@@ -3,6 +3,7 @@ import markup from './languages/markup.js'
 import css from './languages/css.js'
 import json from './languages/json.js'
 import vue from './languages/vue.js'
+import java from './languages/java.js'
 
 /**
  * 문법 강조 플러그인 레지스트리.
@@ -27,7 +28,7 @@ export function register(plugin) {
   return plugin
 }
 
-;[javascript, markup, css, json, vue].forEach(register)
+;[javascript, markup, css, json, vue, java].forEach(register)
 
 const PLAIN = { id: 'plain', tokenize: () => [] }
 

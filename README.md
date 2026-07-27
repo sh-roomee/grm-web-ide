@@ -273,8 +273,14 @@ png을 바꾸면 `git diff`는 `Binary files differ` 한 줄을 준다. 터미�
 
 ### 문법 강조
 
-언어별 플러그인 구조다. 지원: **js/ts · vue · html · css/scss · json**.
+언어별 플러그인 구조다. 지원: **js/ts · vue · html · css/scss · json · java**.
 그 외 확장자는 색 없이 나온다.
+
+`java`는 **애너테이션과 타입**을 따로 칠한다. 자바 한 줄은
+`@Override public ResponseEntity<RoomDto> getRoom(@PathVariable Long id)` 처럼 수식어로
+시작하는 일이 많아서, 키워드만 칠하면 어디가 타입이고 어디가 이름인지 구분되지 않는다.
+`@…`는 한 덩어리로 떼고, `UpperCamelCase` 식별자는 타입으로 본다 — 자바는 관례가 강해
+이 어림짐작이 거의 맞는다.
 
 `.vue`는 한 파일 안의 `<template>` / `<script>` / `<style>`을 각각 다른 언어로
 칠한다. 위 스크린샷에서 같은 파일의 템플릿·스크립트·스타일이 각각 다르게 칠해진
