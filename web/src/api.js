@@ -50,11 +50,14 @@ export const fetchRisks = () => request('/api/risks')
  * 읽을지는 diff를 요청할 때와 같은 파라미터를 그대로 넘겨 서버가 정한다 —
  * 화면에서 보고 있는 것과 어긋날 수 없다.
  */
-export function blobUrl(file, side, { sha = null, base = false } = {}) {
+export function blobUrl(file, side, { sha = null, compare = 'head' } = {}) {
   const params = new URLSearchParams({ path: file.path, side })
   if (sha) params.set('sha', sha)
-  else if (base) params.set('base', '1')
-  else {
+  else if (compare !== 'head') {
+    params.set('compare', compare)
+    // 확인 시점·기준점 트리에는 untracked 파일도 들어 있다. 그쪽을 읽어야 한다.
+    if (file.untracked) params.set('untracked', '1')
+  } else {
     if (file.staged) params.set('staged', '1')
     if (file.untracked) params.set('untracked', '1')
   }
@@ -65,7 +68,7 @@ export function blobUrl(file, side, { sha = null, base = false } = {}) {
 /**
  * 미리보기용 파일 내용을 글자로 받는다 (마크다운 렌더링).
  *
- * 이미지와 같은 `/api/blob`을 쓴다 — 어느 버전을 볼지(staged·커밋·기준점) 정하는
+ * 이미지와 같은 `/api/blob`을 쓴다 — 어느 버전을 볼지(staged·커밋·기준점·확인 시점) 정하는
  * 규칙이 한 곳에만 있어야 화면과 어긋나지 않는다. diff 행을 이어붙이지 않는 이유는
  * "변경 부분"만 받아 온 상태에서는 문서 절반이 비기 때문이다.
  */
@@ -82,10 +85,10 @@ export async function fetchBlobText(file, side, opts = {}) {
  * @param file {path, staged?, untracked?}
  * @param opts.sha 커밋 해시. 주면 워킹트리가 아니라 그 커밋 안의 변경을 본다.
  */
-export function fetchDiff(file, { context = 3, sha = null, base = false } = {}) {
+export function fetchDiff(file, { context = 3, sha = null, compare = 'head' } = {}) {
   const params = new URLSearchParams({ path: file.path, context: String(context) })
   if (sha) params.set('sha', sha)
-  else if (base) params.set('base', '1')
+  else if (compare !== 'head') params.set('compare', compare)
   else {
     if (file.staged) params.set('staged', '1')
     if (file.untracked) params.set('untracked', '1')

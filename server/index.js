@@ -74,21 +74,49 @@ const MAX_PREVIEW_BYTES = 12 * 1024 * 1024
  * 미리보기가 읽을 git rev를 정한다.
  *
  * rev를 클라이언트가 직접 보내게 하지 않는 이유: 그러면 임의 리비전을 읽는
- * 엔드포인트가 된다. 대신 diff를 요청할 때와 **같은 파라미터**(sha·staged·base)를
+ * 엔드포인트가 된다. 대신 diff를 요청할 때와 **같은 파라미터**(sha·staged·compare)를
  * 받아 서버가 이전/이후를 해석한다. 화면에서 보고 있는 것과 어긋날 수 없다.
  *
  * null은 "워킹트리 파일", false는 "그 쪽은 없다"(추가/삭제된 파일)를 뜻한다.
  */
-function previewRev({ side, sha, staged, base, untracked, baselineRef }) {
+function previewRev({ side, sha, staged, compare, untracked, compareRef }) {
   if (side === 'after') {
     if (sha) return sha
     if (staged) return '' // `git show :path` = index
     return null
   }
-  if (untracked) return false // 새로 생긴 파일에는 이전이 없다
+  if (untracked && compare === COMPARE.head) return false // 새로 생긴 파일에는 이전이 없다
   if (sha) return `${sha}^`
-  if (base && baselineRef) return baselineRef
+  // 기준점·확인 시점을 볼 때는 그 트리가 이전 쪽이다. untracked 파일도 그 안에 있을 수
+  // 있다 — AI가 만든 파일을 한 번 확인했다면 그 시점의 내용이 트리에 들어 있다.
+  if (compare !== COMPARE.head && compareRef) return compareRef
+  if (untracked) return false
   return 'HEAD'
+}
+
+/**
+ * diff의 이전 쪽을 무엇으로 볼지.
+ *
+ *   head     — HEAD 대비 (기본). git이 원래 보여주는 것
+ *   baseline — 사람이 잡아 둔 기준점 대비. 워킹트리 전체가 한 순간에 굳는다
+ *   seen     — 이 파일을 확인한 시점 대비. 파일마다 시점이 다르다
+ */
+const COMPARE = { head: 'head', baseline: 'baseline', seen: 'seen' }
+
+/** 비교 대상의 ref 이름. HEAD 대비면 null. */
+function compareRefName(compare) {
+  if (compare === COMPARE.baseline) return gitApi.baselineRef()
+  if (compare === COMPARE.seen) return gitApi.seenRef()
+  return null
+}
+
+/** 알 수 없는 값은 조용히 기본값으로 떨어뜨린다. 화면이 비는 것보다 낫다. */
+function readCompare(query) {
+  const raw = String(query.compare ?? '')
+  if (COMPARE[raw]) return COMPARE[raw]
+  // 옛 파라미터. 기준점 대비를 base=1 로 보내던 때가 있었다.
+  if (query.base === '1' || query.base === 'true') return COMPARE.baseline
+  return COMPARE.head
 }
 
 // 커밋 검색 대상. 이 목록에 없는 값은 message로 떨어진다.
@@ -132,7 +160,12 @@ export function createServer({ repo, token, gitDir, dev = false }) {
   app.get(
     '/api/status',
     wrap(async (_req, res) => {
-      const [status, baseline] = await Promise.all([gitApi.status(repo), gitApi.getBaseline(repo)])
+      const [status, baseline, snapshots] = await Promise.all([
+        gitApi.status(repo),
+        gitApi.getBaseline(repo),
+        // 확인 시점이 기록된 경로. 화면은 이걸로 "확인 이후" 비교를 걸 수 있는지 안다
+        gitApi.seenPaths(repo).catch(() => new Set()),
+      ])
 
       // 기준점이 없으면 비교 비용을 아예 치르지 않는다
       let fresh = null
@@ -147,16 +180,22 @@ export function createServer({ repo, token, gitDir, dev = false }) {
       // 기준점 이후 바뀐 파일에 표시를 남긴다
       let freshCount = 0
       if (fresh) {
-        const seen = new Set()
+        const counted = new Set()
         for (const list of [status.conflicted, status.staged, status.unstaged]) {
           for (const file of list) {
             file.fresh = fresh.has(file.path)
-            if (file.fresh && !seen.has(file.path)) {
-              seen.add(file.path)
+            if (file.fresh && !counted.has(file.path)) {
+              counted.add(file.path)
               freshCount += 1
             }
           }
         }
+      }
+
+      // 확인 시점 스냅샷이 있는 파일. 없으면 "확인 이후" 비교가 파일 전체를 새로 추가된
+      // 것처럼 보여주므로 화면이 그 선택지를 내놓지 않아야 한다.
+      for (const list of [status.conflicted, status.staged, status.unstaged]) {
+        for (const file of list) file.seen = snapshots.has(file.path)
       }
 
       res.json({ ...status, baseline: baseline ? { tree: baseline, freshCount } : null })
@@ -191,17 +230,34 @@ export function createServer({ repo, token, gitDir, dev = false }) {
       const untracked = req.query.untracked === '1' || req.query.untracked === 'true'
       const context = Number.parseInt(req.query.context ?? '3', 10)
       const sha = validSha(req.query.sha)
-      // base=1 이면 HEAD가 아니라 기준점(마지막으로 확인한 시점) 대비로 본다
-      const base = req.query.base === '1' || req.query.base === 'true'
+      const wanted = readCompare(req.query)
 
-      const [raw, highlight] = await Promise.all([
-        sha
-          ? gitApi.commitFileDiff(repo, sha, relPath, { context })
-          : base
-            ? gitApi.baselineFileDiff(repo, gitDir, relPath, { context })
-            : gitApi.fileDiff(repo, relPath, { staged, untracked, context }),
-        highlightInfo(repo, relPath),
-      ])
+      /**
+       * 요청한 비교 대상으로 diff를 뜬다. 뜰 수 없으면 HEAD 대비로 떨어뜨리고
+       * **무엇으로 떴는지 함께 돌려준다** — 화면이 고른 것과 실제가 어긋날 수 있어서다.
+       *
+       * '확인 이후'는 그 파일을 한 번이라도 확인했을 때만 뜻이 있다. 클라이언트가
+       * 이미 걸러 주지만, 상태가 낡은 사이에 요청이 오면 파일 전체가 새로 추가된
+       * 것처럼 보인다. 그건 사실이 아니라 답할 수 없는 질문이므로 여기서도 막는다.
+       */
+      async function diffFor() {
+        if (sha) return { raw: await gitApi.commitFileDiff(repo, sha, relPath, { context }), compare: COMPARE.head }
+        if (wanted === COMPARE.baseline) {
+          return { raw: await gitApi.baselineFileDiff(repo, gitDir, relPath, { context }), compare: wanted }
+        }
+        if (wanted === COMPARE.seen) {
+          const raw = await gitApi.seenFileDiff(repo, gitDir, relPath, { context })
+          if (raw !== null) return { raw, compare: wanted }
+        }
+        return {
+          raw: await gitApi.fileDiff(repo, relPath, { staged, untracked, context }),
+          compare: COMPARE.head,
+        }
+      }
+
+      const [diffResult, highlight] = await Promise.all([diffFor(), highlightInfo(repo, relPath)])
+      const { raw } = diffResult
+      const compare = diffResult.compare
       const parsed = parseUnifiedDiff(raw)
 
       // 그림으로 볼 수 있는 파일이면 양쪽 크기를 함께 준다. "이 이미지가 갑자기
@@ -213,10 +269,10 @@ export function createServer({ repo, token, gitDir, dev = false }) {
       if (info && info.kind !== 'image') {
         preview = { ...info, before: null, after: null }
       } else if (info) {
-        const baselineRef = base ? gitApi.baselineRef() : null
+        const compareRef = compareRefName(compare)
         const revs = {
-          before: previewRev({ side: 'before', sha, staged, base, untracked, baselineRef }),
-          after: previewRev({ side: 'after', sha, staged, base, untracked, baselineRef }),
+          before: previewRev({ side: 'before', sha, staged, compare, untracked, compareRef }),
+          after: previewRev({ side: 'after', sha, staged, compare, untracked, compareRef }),
         }
         const [before, after] = await Promise.all([
           revs.before === false ? null : gitApi.blobSize(repo, relPath, { rev: revs.before }),
@@ -230,7 +286,7 @@ export function createServer({ repo, token, gitDir, dev = false }) {
         staged,
         untracked,
         sha: sha ?? null,
-        base,
+        compare,
         preview,
         ...highlight,
         ...parsed,
@@ -309,14 +365,14 @@ export function createServer({ repo, token, gitDir, dev = false }) {
       const sha = validSha(req.query.sha)
       const staged = req.query.staged === '1' || req.query.staged === 'true'
       const untracked = req.query.untracked === '1' || req.query.untracked === 'true'
-      const base = req.query.base === '1' || req.query.base === 'true'
+      const compare = readCompare(req.query)
       const rev = previewRev({
         side,
         sha,
         staged,
-        base,
+        compare,
         untracked,
-        baselineRef: base ? gitApi.baselineRef() : null,
+        compareRef: compareRefName(compare),
       })
       if (rev === false) return res.status(404).json({ error: '그 쪽에는 파일이 없습니다' })
 
@@ -363,7 +419,33 @@ export function createServer({ repo, token, gitDir, dev = false }) {
   app.put(
     '/api/reviewed',
     wrap(async (req, res) => {
+      /**
+       * 확인 표시를 저장하면서 **그때의 내용**도 함께 굳힌다.
+       *
+       * 클라이언트는 표시 전체를 보내므로(부분 갱신이 아니다) 서버가 앞뒤를 비교해
+       * "새로 확인된 것"을 찾는다. 표시를 풀 때는 스냅샷을 지우지 않는다 — 그 기록은
+       * "마지막으로 확인했을 때 내용이 이랬다"는 사실이고, 표시를 껐다고 없던 일이
+       * 되지는 않는다.
+       *
+       * 지문이 바뀌어 확인이 자동으로 풀린 경우(파일이 또 바뀐 경우)에도 키는 그대로
+       * 남아 있어 여기서는 "새로 확인된 것"으로 보이지 않는다. 그게 맞다 — 사람이 다시
+       * 누르기 전까지 기준은 예전 내용이어야 "확인 이후 무엇이 바뀌었나"가 나온다.
+       */
+      const before = (await readState(gitDir)).reviewed ?? {}
       const marks = await saveReviewed(gitDir, req.body?.marks)
+
+      const added = Object.keys(marks).filter((key) => marks[key] !== before[key])
+      // 키는 `work:<path>` / `staged:<path>` 다. 경로에 `:` 가 있을 수 있어 한 번만 자른다.
+      const paths = added.map((key) => key.slice(key.indexOf(':') + 1)).filter(Boolean)
+      if (paths.length) {
+        try {
+          await gitApi.markSeen(repo, gitDir, paths)
+        } catch (err) {
+          // 스냅샷을 못 남겨도 확인 표시 자체는 살린다. 진행률이 더 중요하다.
+          console.error('[grmide] 확인 시점 기록 실패:', err.message)
+        }
+      }
+
       res.json({ marks })
     }),
   )

@@ -17,7 +17,14 @@ import * as api from '../api.js'
 
 const SAVE_DEBOUNCE_MS = 200
 
-export function useReview(repoRoot) {
+/**
+ * @param onSaved 저장이 끝난 뒤 불린다.
+ *   확인을 누르면 서버가 **그때의 내용도 스냅샷으로 굳힌다**(`refs/grmide/seen`).
+ *   그 사실은 `/api/status`의 `seen` 플래그로만 알 수 있는데, 저장이 디바운스라
+ *   호출한 쪽에서 바로 상태를 다시 받으면 PUT보다 앞질러 낡은 값을 읽는다.
+ *   실제로 `전체 확인` 직후 '확인 이후' 선택지가 뜨지 않는 것으로 드러났다.
+ */
+export function useReview(repoRoot, { onSaved = null } = {}) {
   const marks = ref({})
   const error = ref('')
   let saveTimer = null
@@ -25,12 +32,18 @@ export function useReview(repoRoot) {
   const fingerprint = (file) => `${file.status}:${file.additions ?? '-'}:${file.deletions ?? '-'}`
   const keyOf = (file) => `${file.staged ? 'staged' : 'work'}:${file.path}`
 
-  /** 서버에 밀어 넣는다. 토글·전체 확인이 연달아 눌릴 수 있어 잠깐 모은다. */
-  function persist() {
+  /**
+   * 서버에 밀어 넣는다. 토글·전체 확인이 연달아 눌릴 수 있어 잠깐 모은다.
+   *
+   * `notify: false`는 정리(`prune`)에 쓴다. 정리는 `onSaved`가 부르는 상태 갱신 안에서
+   * 다시 일어나므로, 알리면 갱신 → 정리 → 갱신으로 되돌아온다.
+   */
+  function persist({ notify = true } = {}) {
     if (saveTimer) clearTimeout(saveTimer)
     saveTimer = setTimeout(async () => {
       try {
         await api.saveReviewed(marks.value)
+        if (notify) await onSaved?.()
       } catch (err) {
         error.value = err.message
       }
@@ -94,7 +107,7 @@ export function useReview(repoRoot) {
         changed = true
       }
     }
-    if (changed) persist()
+    if (changed) persist({ notify: false })
   }
 
   return { marks, error, load, isReviewed, toggle, markAll, prune }

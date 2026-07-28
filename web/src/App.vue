@@ -26,7 +26,13 @@ const diffLoading = ref(false)
 // --- 기준점: "내가 마지막으로 확인한 시점" 이후 바뀐 것만 보기
 const baseline = ref(null) // { tree, freshCount }
 const freshOnly = ref(false) // 좌측 목록을 새 변경만으로 좁힌다
-const compareBase = ref(false) // diff를 HEAD 대신 기준점 대비로 본다
+/**
+ * diff의 이전 쪽을 무엇으로 볼지: 'head' | 'baseline' | 'seen'
+ *
+ * 'seen'(확인 이후)은 파일마다 스냅샷이 있는지가 다르다. 그래서 이 값은 "고른 것"이고,
+ * 실제로 걸 수 있는지는 파일별로 판단한다(`compareFor`).
+ */
+const compare = ref('head')
 
 // --- 위험 신호: AI가 조용히 지운 것들
 const risks = ref({ files: {}, total: 0, fileCount: 0 })
@@ -40,7 +46,9 @@ const connected = ref(true)
 const retrying = ref(false)
 
 const repoRoot = computed(() => repo.value?.root ?? null)
-const review = useReview(repoRoot)
+// 확인을 누르면 서버가 그때의 내용도 스냅샷으로 굳힌다. 그 사실(`seen` 플래그)을
+// 알아야 '확인 이후' 선택지를 내놓을 수 있어서, 저장이 끝나면 상태를 다시 받는다.
+const review = useReview(repoRoot, { onSaved: () => loadStatus() })
 
 // --- 탭: 워킹트리 변경 / 커밋 히스토리
 const VIEWS = [
@@ -330,6 +338,42 @@ const activeStatusFile = computed(() => {
   )
 })
 
+/** 그 파일에 확인 시점 스냅샷이 있는가. 서버가 `/api/status`에서 알려준다. */
+function hasSnapshot(path) {
+  return allFiles.value.some((f) => f.path === path && f.seen)
+}
+
+/**
+ * 이 파일에 실제로 걸 비교 대상.
+ *
+ * 고른 값을 그대로 쓰지 않는다. '확인 이후'는 그 파일을 한 번이라도 확인했을 때만
+ * 뜻이 있고, 스냅샷이 없는 파일에 걸면 파일 전체가 새로 추가된 것처럼 나온다.
+ * 그럴 때는 조용히 HEAD 대비로 떨어뜨린다 — 빈 화면을 보여주는 것보다 낫다.
+ */
+function compareFor(tab) {
+  if (compare.value === 'seen') return hasSnapshot(tab.path) ? 'seen' : 'head'
+  if (compare.value === 'baseline') return baseline.value ? 'baseline' : 'head'
+  return 'head'
+}
+
+/** 지금 파일에서 고를 수 있는 비교 대상. DiffViewer가 세그먼트를 그릴 때 쓴다. */
+const compareOptions = computed(() => {
+  const tab = tabs.active.value
+  if (!tab || tab.kind !== 'worktree') return []
+  const out = [{ key: 'head', label: 'HEAD 대비', hint: 'git이 원래 보여주는 전체 변경' }]
+  if (baseline.value) {
+    out.push({ key: 'baseline', label: '기준점 이후', hint: '기준점을 잡은 뒤 바뀐 것만' })
+  }
+  if (hasSnapshot(tab.path)) {
+    out.push({
+      key: 'seen',
+      label: '확인 이후',
+      hint: '이 파일을 확인함으로 표시한 뒤 바뀐 것만',
+    })
+  }
+  return out.length > 1 ? out : []
+})
+
 /**
  * 이 파일 확인 — Cursor처럼 보고 있는 파일을 하나씩 넘긴다.
  * 확인하면 다음 새 변경으로 자동으로 옮겨 간다. 44개를 훑을 때 이게 전부다.
@@ -362,7 +406,7 @@ async function dropBaseline() {
   try {
     await api.clearBaseline()
     freshOnly.value = false
-    compareBase.value = false
+    if (compare.value === 'baseline') compare.value = 'head'
     await loadStatus()
   } catch (err) {
     diffError.value = err.message
@@ -382,7 +426,7 @@ async function loadStatus() {
     baseline.value = next.baseline
     if (!next.baseline) {
       freshOnly.value = false
-      compareBase.value = false
+      if (compare.value === 'baseline') compare.value = 'head'
     }
     review.prune(allFiles.value)
     lastSync.value = new Date().toLocaleTimeString('ko-KR', { hour12: false })
@@ -482,8 +526,8 @@ async function loadActive() {
             {
               context: context.value,
               sha: tab.kind === 'commit' ? tab.sha : null,
-              // 워킹트리 탭만 기준점 대비로 볼 수 있다
-              base: tab.kind === 'worktree' && compareBase.value,
+              // 워킹트리 탭만 기준점·확인 시점 대비로 볼 수 있다
+              compare: tab.kind === 'worktree' ? compareFor(tab) : 'head',
             },
           )
     // 늦게 온 응답은 그 탭에만 담는다 (그 사이 다른 탭으로 옮겼을 수 있다)
@@ -515,7 +559,7 @@ async function revealLine(tab) {
 watch(() => tabs.activeId.value, loadActive)
 
 // 보기 범위나 비교 대상을 바꾸면 diff 탭을 다시 받아야 한다
-watch([context, compareBase], () => {
+watch([context, compare], () => {
   for (const tab of tabs.tabs.value) {
     if (tab.kind !== 'file') tab.stale = true
   }
@@ -941,17 +985,17 @@ function onKey(event) {
           :loading="diffLoading && !tabs.active.value.data"
           :error="tabs.active.value.error || diffError"
           :badge="
-            compareBase && tabs.active.value.kind === 'worktree'
-              ? '기준점 이후'
+            tabs.active.value.kind === 'worktree' && compare !== 'head'
+              ? compareOptions.find((o) => o.key === compare)?.label
               : tabs.active.value.sub
           "
           :link="activeStatusFile?.link ?? ''"
-          :can-compare-base="Boolean(baseline) && tabs.active.value.kind === 'worktree'"
-          :compare-base="compareBase"
+          :compare-options="compareOptions"
+          :compare="compare"
           :comments-for="commentsForActive"
           :risks="risksFor(tabs.active.value.path) ?? []"
           @update:context="context = $event"
-          @update:compare-base="compareBase = $event"
+          @update:compare="compare = $event"
           @comment="addComment($event)"
           @delete-comment="comments.remove($event)"
           @add-context="stash($event)"

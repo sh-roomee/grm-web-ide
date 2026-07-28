@@ -18,9 +18,9 @@ const props = defineProps({
   link: { type: String, default: '' },
   // 파일 하나를 그냥 읽는 모드(⌘P로 열었을 때). diff가 아니라 한 컬럼이다.
   single: { type: Boolean, default: false },
-  // 기준점 대비로 볼 수 있는 상태인지 (기준점이 있고 워킹트리 diff일 때만)
-  canCompareBase: { type: Boolean, default: false },
-  compareBase: { type: Boolean, default: false },
+  // 지금 파일에서 고를 수 있는 비교 대상 [{ key, label, hint }]. 하나뿐이면 빈 배열이다
+  compareOptions: { type: Array, default: () => [] },
+  compare: { type: String, default: 'head' },
   // 줄별 리뷰 코멘트: (path, side, line) => 코멘트 배열 | null
   commentsFor: { type: Function, default: () => null },
   // 지금 파일의 위험 신호 [{ kind, label, count, samples }]
@@ -29,7 +29,7 @@ const props = defineProps({
 
 const emit = defineEmits([
   'update:context',
-  'update:compareBase',
+  'update:compare',
   'comment',
   'delete-comment',
   'add-context',
@@ -219,7 +219,9 @@ const previewTarget = computed(() => {
     staged: diff?.staged,
     untracked: diff?.untracked,
     sha: diff?.sha ?? null,
-    base: Boolean(diff?.base),
+    // 서버가 되돌려준 값을 그대로 쓴다. 화면이 고른 것과 서버가 실제로 쓴 것이
+    // 어긋날 수 있다(스냅샷이 없어 HEAD로 떨어진 경우).
+    compare: diff?.compare ?? 'head',
   }
 })
 
@@ -228,7 +230,7 @@ const previewUrls = computed(() => {
   const diff = props.diff
   if (!diff?.preview) return { before: '', after: '' }
   const target = previewTarget.value
-  const opts = { sha: target.sha, base: target.base }
+  const opts = { sha: target.sha, compare: target.compare }
   return {
     before: blobUrl(target, 'before', opts),
     after: blobUrl(target, 'after', opts),
@@ -259,7 +261,7 @@ watch(
     try {
       const text = await fetchBlobText(previewTarget.value, 'after', {
         sha: previewTarget.value.sha,
-        base: previewTarget.value.base,
+        compare: previewTarget.value.compare,
       })
       // 그 사이에 다른 파일로 옮겼으면 늦게 온 응답을 버린다
       if (url !== previewUrls.value.after) return
@@ -542,23 +544,20 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
           <span class="pos">{{ blockCount ? cursor + 1 : 0 }} / {{ blockCount }}</span>
         </div>
 
-        <!-- 비교 대상: HEAD 대비 / 기준점 대비 -->
-        <div v-if="canCompareBase" class="modes" role="group" aria-label="비교 대상">
+<!--
+          비교 대상: HEAD / 기준점 / 확인 이후.
+          고를 것이 하나뿐이면(기준점도 스냅샷도 없으면) 아예 뜨지 않는다.
+        -->
+        <div v-if="compareOptions.length" class="modes" role="group" aria-label="비교 대상">
           <button
+            v-for="opt in compareOptions"
+            :key="opt.key"
             class="mode"
-            :class="{ on: !compareBase }"
-            title="커밋된 상태(HEAD)와 비교"
-            @click="emit('update:compareBase', false)"
+            :class="{ on: compare === opt.key }"
+            :title="opt.hint"
+            @click="emit('update:compare', opt.key)"
           >
-            HEAD 대비
-          </button>
-          <button
-            class="mode"
-            :class="{ on: compareBase }"
-            title="마지막으로 확인한 시점과 비교 — 새로 바뀐 것만 보인다"
-            @click="emit('update:compareBase', true)"
-          >
-            기준점 대비
+            {{ opt.label }}
           </button>
         </div>
 

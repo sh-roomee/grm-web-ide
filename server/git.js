@@ -567,6 +567,100 @@ export async function blobSize(repo, relPath, { rev = null } = {}) {
 /** 기준점 ref 이름. 미리보기가 "기준점 대비"를 읽을 때 쓴다. */
 export const baselineRef = () => BASELINE_REF
 
+// ---------------------------------------------------------------------------
+// 확인 시점 (seen) — "이 파일을 확인했을 때의 내용"
+//
+// 기준점과 무엇이 다른가: 기준점은 워킹트리 **전체**를 한 순간에 굳힌다. 사람이
+// 직접 잡아야 하고, 잡은 뒤에는 파일 40개가 한꺼번에 "기준점 이후"가 된다.
+//
+// 실제로 AI와 오갈 때는 파일마다 본 시점이 다르다. A를 읽고, AI가 A와 B를 고치고,
+// B를 읽고, AI가 다시 A를 고친다. 이때 알고 싶은 것은 "A에서 **내가 읽은 뒤** 무엇이
+// 더 바뀌었나"다. 목록의 점(`isFresh`)이 어느 파일인지는 알려주지만 무엇이 바뀌었는지는
+// 말해 주지 않았다.
+//
+// 그래서 파일별로 누적되는 트리를 하나 둔다. `확인`을 누른 파일만 그때 내용으로
+// 갈아 넣는다. 트리 하나에 매달아 두므로 blob이 gc에 지워지지 않는다 — 기준점이
+// ref를 쓰는 이유와 같다.
+//
+// 트리거를 `확인`으로 잡은 이유: 탭을 열었다고 자동으로 옮기면 스크롤도 안 한 변경까지
+// "봤다"가 되어 조용히 삼켜진다. 이 도구가 이미 `확인`을 "봤다"의 뜻으로 쓰고 있다.
+// ---------------------------------------------------------------------------
+
+const SEEN_REF = 'refs/grmide/seen'
+
+/** 확인 시점 ref 이름. 미리보기가 "확인 이후"의 이전 쪽을 읽을 때 쓴다. */
+export const seenRef = () => SEEN_REF
+
+export async function getSeen(repo) {
+  const out = await git(repo, ['rev-parse', '--verify', '--quiet', SEEN_REF], { allowFail: true })
+  return out.trim() || null
+}
+
+/**
+ * 이 파일을 "지금 내용으로 확인했다"고 기록한다.
+ *
+ * 앞서 쌓아 둔 트리를 임시 index로 불러온 뒤 이 경로 하나만 갈아 넣고 다시 트리로
+ * 굳힌다. 그래서 다른 파일의 확인 시점은 건드리지 않는다.
+ *
+ * `--add --remove`를 함께 준다: 확인한 뒤 파일이 지워지는 경우도 기록해야 한다
+ * (`--add`만 주면 없는 파일에서 실패한다).
+ *
+ * 기준점과 index 파일을 나눠 쓴다. 같은 파일을 쓰면 `add -A`가 훑어 둔 stat 캐시를
+ * 서로 무너뜨려 매번 저장소 전체를 다시 해시한다.
+ */
+export async function markSeen(repo, gitDir, relPaths) {
+  const paths = [...new Set((Array.isArray(relPaths) ? relPaths : [relPaths]).filter(Boolean))]
+  if (!paths.length) return null
+
+  const env = { GIT_INDEX_FILE: path.join(gitDir, 'grmide-seen-index') }
+  const prev = await getSeen(repo)
+  await git(repo, ['read-tree', prev ?? '--empty'], { env })
+  // 경로를 한 번에 넘긴다. 파일 40개를 전체 확인할 때 프로세스 40개를 띄우지 않는다.
+  await git(repo, ['update-index', '--add', '--remove', '--', ...paths], { env, allowFail: true })
+  const tree = (await git(repo, ['write-tree'], { env })).trim()
+  if (!tree) return null
+  await git(repo, ['update-ref', SEEN_REF, tree])
+  return tree
+}
+
+/**
+ * 확인 시점이 기록된 경로들.
+ *
+ * 화면은 이걸로 "이 파일에 '확인 이후'를 보여줄 수 있는가"를 판단한다. 기록이 없는
+ * 파일에 그 비교를 걸면 파일 전체가 새로 추가된 것처럼 나와 쓸모가 없다.
+ */
+export async function seenPaths(repo) {
+  const tree = await getSeen(repo)
+  if (!tree) return new Set()
+  const raw = await git(repo, ['ls-tree', '-r', '--name-only', '-z', tree], { allowFail: true })
+  return new Set(raw.split('\0').filter(Boolean))
+}
+
+/**
+ * 확인한 시점 이후 이 파일이 어떻게 바뀌었는지.
+ *
+ * 스냅샷이 없으면 **null**을 돌려준다. 빈 문자열이 아니다 — 빈 문자열은 "바뀐 것이
+ * 없다"는 뜻이고, 스냅샷이 없는 것은 "이 질문에 답할 수 없다"는 뜻이라 부르는 쪽이
+ * 다르게 처리해야 한다. 그대로 diff를 뜨면 파일 전체가 새로 추가된 것처럼 나온다.
+ */
+export async function seenFileDiff(repo, gitDir, relPath, { context = 3 } = {}) {
+  const tree = await getSeen(repo)
+  if (!tree) return null
+  // 트리에 그 경로가 있는지만 본다. `cat-file -e`는 성공/실패를 종료 코드로만 알려서
+  // allowFail과 함께 쓰면 구분이 안 된다 — 출력으로 판별되는 ls-tree를 쓴다.
+  const entry = await git(repo, ['ls-tree', '-z', tree, '--', relPath], { allowFail: true })
+  if (!entry.trim()) return null
+  const cur = await currentTree(repo, gitDir)
+  const ctx = `-U${Number.isInteger(context) ? context : 3}`
+  return git(repo, ['diff-tree', '-p', '--no-color', ctx, tree, cur, '--', relPath], {
+    allowFail: true,
+  })
+}
+
+export async function clearSeen(repo) {
+  await git(repo, ['update-ref', '-d', SEEN_REF], { allowFail: true })
+}
+
 export async function fileContent(repo, relPath, { sha = null, maxLines = 20000 } = {}) {
   let buffer
   if (sha) {

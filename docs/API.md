@@ -65,6 +65,10 @@ x-grmide-token: <토큰>
 - `baseline`은 기준점("마지막으로 확인한 시점")이 잡혀 있을 때만 채워진다.
   이때 각 파일에 `fresh: true|false`가 붙는다 — 기준점 이후 바뀌었는지다.
   기준점이 없으면 `baseline`은 `null`이고 비교 비용도 치르지 않는다.
+- 각 파일에 `seen: true|false`가 붙는다 — **이 파일을 확인함으로 표시한 시점의 내용이
+  기록돼 있는지**(`refs/grmide/seen`). 화면은 이걸로 "확인 이후" 비교를 내놓을 수
+  있는지 판단한다. 기록이 없는 파일에 그 비교를 걸면 파일 전체가 새로 추가된 것처럼
+  보이기 때문이다.
 - `freshCount`는 경로 기준 개수다. 화면에 보이는 "새 변경 N"은 여기서 **확인
   체크가 있는 파일을 뺀** 수다 — 개별 확인을 눌러도 표시가 남으면 안 되므로,
   "새 변경 = 기준점 이후 바뀜 AND 아직 확인 안 함"으로 정의한다.
@@ -85,7 +89,7 @@ x-grmide-token: <토큰>
 | `staged` | | `1`이면 `--cached` diff |
 | `untracked` | | `1`이면 `--no-index`로 `/dev/null`과 비교 |
 | `context` | | 컨텍스트 줄 수 = `git diff -U<n>` (기본 3). 화면의 "파일 전체"는 100000이며 파일 전체가 한 훅으로 온다 |
-| `base` | | `1`이면 HEAD가 아니라 **기준점 대비**로 본다. 이미 확인한 변경은 컨텍스트로 내려가고 새로 바뀐 것만 변경으로 뜬다 |
+| `compare` | | 이전 쪽을 무엇으로 볼지: `head`(기본) · `baseline` · `seen`. 이미 본 변경은 컨텍스트로 내려가고 그 뒤에 바뀐 것만 변경으로 뜬다 |
 | `sha` | | 커밋 해시. 주면 워킹트리가 아니라 **그 커밋 안의 변경**을 본다. 이때 `staged`·`untracked`는 무시된다 |
 
 `sha`는 `[0-9a-f]{4,40}` 만 통과한다. `HEAD~3`이나 `main..x` 같은 리비전 표현은
@@ -544,7 +548,7 @@ PUT은 맵을 통째로 갈아 끼운다 — 토글·전체 확인·정리가 �
 | `side` | | `before` \| `after` (기본 `after`) |
 | `staged` | | `1`이면 index 내용 (`git show :<path>`) |
 | `untracked` | | `1`이면 `before`가 없다 (404) |
-| `base` | | `1`이면 `before`가 기준점(`refs/grmide/baseline`) 내용 |
+| `compare` | | `baseline`·`seen`이면 `before`가 그 트리의 내용 (`head`가 기본) |
 | `sha` | | 커밋 해시. `after`는 그 커밋, `before`는 첫 부모(`<sha>^`) |
 | `t` | | 토큰. `<img>`는 헤더를 붙일 수 없어 쿼리로 받는다 |
 
@@ -555,7 +559,7 @@ PUT은 맵을 통째로 갈아 끼운다 — 토글·전체 확인·정리가 �
 | side | 해석 |
 | --- | --- |
 | `after` | `sha` → `<sha>:<path>` / `staged` → `:<path>` / 그 밖 → 워킹트리 파일 |
-| `before` | `untracked` → 없음 / `sha` → `<sha>^:<path>` / `base` → `refs/grmide/baseline:<path>` / 그 밖 → `HEAD:<path>` |
+| `before` | `sha` → `<sha>^:<path>` / `compare=baseline` → `refs/grmide/baseline:<path>` / `compare=seen` → `refs/grmide/seen:<path>` / `untracked` → 없음 / 그 밖 → `HEAD:<path>` |
 
 응답은 원본 바이트다. `Content-Type`은 확장자 표에서 온 값만 쓰고
 `X-Content-Type-Options: nosniff`를 붙인다. git 객체는 내용이 곧 이름이라
