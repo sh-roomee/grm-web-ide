@@ -215,6 +215,31 @@ export function parseInline(src) {
       }
     }
 
+    /**
+     * 맨 URL 자동 링크 (GFM).
+     *
+     * 문서에 주소를 그냥 적는 일이 많다 — README 의 GitHub 첨부 영상 URL 이 그렇다
+     * (마크다운으로 감싸면 GitHub 이 플레이어로 바꿔 주지 않아서 맨 URL 로 둬야 한다).
+     * 그걸 글자로만 남기면 미리보기에서 누를 수 없는 긴 문자열이 된다.
+     *
+     * 앞이 낱말 중간이면 건드리지 않는다 — `see:https://x` 는 붙여 쓴 것이지만
+     * `abchttps://x` 처럼 식별자 안에 든 것을 링크로 만들면 안 된다.
+     */
+    if ((ch === 'h' || ch === 'H') && /^https?:\/\//i.test(text.slice(i))) {
+      const prev = text[i - 1]
+      if (!prev || !/[\w./-]/.test(prev)) {
+        const raw = /^https?:\/\/[^\s<>"'`]+/i.exec(text.slice(i))[0]
+        const url = trimUrlTail(raw)
+        const href = safeHref(url)
+        if (href && url.length > 'https://'.length) {
+          flush()
+          out.push({ type: 'link', href, children: [{ type: 'text', value: url }] })
+          i += url.length
+          continue
+        }
+      }
+    }
+
     // <http://...> 자동 링크
     if (ch === '<') {
       const close = text.indexOf('>', i)
@@ -233,6 +258,35 @@ export function parseInline(src) {
 
   flush()
   return out
+}
+
+/**
+ * 맨 URL 의 꼬리를 문장에서 떼어낸다 (GFM 규칙).
+ *
+ * `자세히는 https://example.com/a.` 에서 마지막 점은 문장의 것이고 주소가 아니다.
+ * 괄호는 개수를 세어 짝이 맞는 것만 남긴다 — 위키 주소에 괄호가 들어가지만
+ * `(https://example.com)` 처럼 감싼 괄호는 주소가 아니다.
+ */
+function trimUrlTail(url) {
+  let end = url.length
+  while (end > 0) {
+    const ch = url[end - 1]
+    if ('.,;:!?’\'"*_~'.includes(ch)) {
+      end -= 1
+      continue
+    }
+    if (ch === ')') {
+      const slice = url.slice(0, end)
+      const opens = (slice.match(/\(/g) ?? []).length
+      const closes = (slice.match(/\)/g) ?? []).length
+      if (closes > opens) {
+        end -= 1
+        continue
+      }
+    }
+    break
+  }
+  return url.slice(0, end)
 }
 
 /**

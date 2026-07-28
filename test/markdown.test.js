@@ -291,6 +291,52 @@ test('그냥 개행은 한 칸 공백으로 이어붙인다', () => {
   assert.equal(textOf(nodes), '첫 줄 둘째 줄')
 })
 
+// --- 맨 URL 자동 링크 (README 의 GitHub 첨부 영상이 이 형태다)
+
+test('맨 URL 을 링크로 만든다', () => {
+  const nodes = parseInline('https://github.com/user-attachments/assets/d6a81f21')
+  assert.equal(nodes.length, 1)
+  assert.equal(nodes[0].type, 'link')
+  assert.equal(nodes[0].href, 'https://github.com/user-attachments/assets/d6a81f21')
+})
+
+test('문장 끝 마침표는 주소에 넣지 않는다', () => {
+  const nodes = parseInline('자세히는 https://example.com/a.')
+  const link = nodes.find((n) => n.type === 'link')
+  assert.equal(link.href, 'https://example.com/a')
+  // 뗀 마침표는 버리지 않고 글자로 남긴다
+  assert.equal(nodes[nodes.length - 1].value, '.')
+})
+
+test('감싼 괄호는 주소에서 뗀다', () => {
+  const nodes = parseInline('(https://example.com/a)')
+  const link = nodes.find((n) => n.type === 'link')
+  assert.equal(link.href, 'https://example.com/a')
+})
+
+test('주소 안의 짝맞는 괄호는 남긴다', () => {
+  const [link] = parseInline('https://ko.wikipedia.org/wiki/git_(소프트웨어)')
+  assert.equal(link.href, 'https://ko.wikipedia.org/wiki/git_(소프트웨어)')
+})
+
+test('낱말 중간의 http 는 링크로 만들지 않는다', () => {
+  const nodes = parseInline('abchttps://example.com')
+  assert.ok(!nodes.some((n) => n.type === 'link'))
+})
+
+test('코드 스팬 안의 맨 URL 은 링크가 아니다', () => {
+  const nodes = parseInline('`https://example.com`')
+  assert.equal(nodes.length, 1)
+  assert.equal(nodes[0].type, 'code')
+})
+
+test('링크 문법 안의 주소를 두 번 처리하지 않는다', () => {
+  const nodes = parseInline('[여기](https://example.com)')
+  assert.equal(nodes.length, 1)
+  assert.equal(nodes[0].type, 'link')
+  assert.equal(textOf(nodes[0].children), '여기')
+})
+
 test('백슬래시로 문법을 끌 수 있다', () => {
   const nodes = parseInline('\\*굵게 아님\\*')
   assert.equal(textOf(nodes), '*굵게 아님*')
@@ -475,8 +521,13 @@ for (const rel of DOCS) {
 
     // 문단이 통째로 코드 블록으로 삼켜지는 등의 사고를 잡는다:
     // 원문의 한글/영문 낱말이 결과에도 있어야 한다.
+    //
+    // HTML 주석은 세지 않는다 — 감추는 것이 의도이고(위 'HTML 주석은 버린다' 참고),
+    // 문서에 남긴 편집 지침이 사라졌다고 실패하면 안 된다. README 에 첨부 URL 을
+    // 감싸지 말라는 주석을 넣으면서 실제로 걸렸다.
+    const visible = src.replace(/<!--[\s\S]*?-->/g, ' ')
     const rendered = blocks.map(blockText).join('\n')
-    const words = src.match(/[가-힣]{3,}|[A-Za-z]{5,}/g) ?? []
+    const words = visible.match(/[가-힣]{3,}|[A-Za-z]{5,}/g) ?? []
     const unique = [...new Set(words)]
     const missing = unique.filter((w) => !rendered.includes(w))
     assert.deepEqual(missing, [], `사라진 낱말: ${missing.slice(0, 8).join(', ')}`)
