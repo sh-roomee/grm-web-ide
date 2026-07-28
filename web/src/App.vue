@@ -250,8 +250,18 @@ function fileAsDiff(doc) {
 }
 
 /** ⌘P / ⌘⇧F 결과에서 파일을 열면 새 탭이 된다. */
-function openFile({ path, line = null }) {
-  tabs.open({ kind: 'file', path, line, sub: '읽기 전용' })
+/**
+ * 파일을 문서 탭으로 연다.
+ *
+ * **기본이 "붙잡아 열기"다.** 미리 보기는 목록을 훑는 동작에만 쓴다 — ⌘P나 검색
+ * 결과로 여는 것은 이미 무엇을 볼지 정하고 찾아온 것이라, 다음에 무엇을 누르면
+ * 사라지는 탭으로 주면 오히려 놀란다.
+ *
+ * 예외는 문서 안 링크(`pin: false`)다. 그쪽은 읽던 흐름을 따라가는 것이라 문서를
+ * 몇 개 거치면 탭이 쌓인다.
+ */
+function openFile({ path, line = null, hash = null }, { pin = true } = {}) {
+  tabs.open({ kind: 'file', path, line, hash, sub: '읽기 전용' }, { pin })
   // 이미 그 탭을 보고 있었다면 activeId가 그대로여서 watch가 돌지 않는다.
   // 그러면 줄 이동이 조용히 사라진다(⌘⇧F 결과를 연달아 누르는 경우).
   loadActive()
@@ -945,7 +955,7 @@ function onKey(event) {
           @comment="addComment($event)"
           @delete-comment="comments.remove($event)"
           @add-context="stash($event)"
-          @open-file="openFile({ path: $event })"
+          @open-file="openFile($event, { pin: false })"
         >
           <template #actions>
             <!-- Cursor처럼 보고 있는 파일을 하나씩 확인해 넘긴다 -->

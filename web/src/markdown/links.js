@@ -70,25 +70,41 @@ function isExternal(href) {
 /**
  * 링크를 어떻게 다룰지 정한다.
  *
- *   {kind:'anchor'}                 문서 안 이동. 지금은 그리기만 하고 이동은 안 한다
+ *   {kind:'anchor', id}             문서 안 제목으로 이동
  *   {kind:'external', href}         새 브라우저 탭
  *   {kind:'file', path, hash}       이 도구에서 문서 탭으로 연다
  */
 export function classifyLink(fromPath, href) {
   const raw = String(href ?? '')
   if (!raw) return null
-  if (raw.startsWith('#')) return { kind: 'anchor', href: raw }
+  // `#설계-결정` — 이 문서 안의 제목. id는 파서가 붙인 것과 같은 규칙이라 그대로 맞는다.
+  if (raw.startsWith('#')) return { kind: 'anchor', id: decodeHash(raw.slice(1)) }
   if (isExternal(raw)) return { kind: 'external', href: raw }
 
   const [pathPart, hash] = splitHash(raw)
   const path = resolveRelative(fromPath, pathPart)
   if (!path) return null
-  return { kind: 'file', path, hash: hash || null }
+  return { kind: 'file', path, hash: hash ? decodeHash(hash) : null }
 }
 
 function splitHash(raw) {
   const at = raw.indexOf('#')
   return at < 0 ? [raw, ''] : [raw.slice(0, at), raw.slice(at + 1)]
+}
+
+/**
+ * 앵커를 실제 id로 되돌린다.
+ *
+ * GitHub에서 복사한 링크는 한글이 퍼센트 인코딩돼 있다
+ * (`#%EC%84%A4%EA%B3%84-%EA%B2%B0%EC%A0%95`). 그대로 두면 `#설계-결정` 과 다른
+ * 문자열이 되어 못 찾는다. 망가진 인코딩이면 원문을 그대로 쓴다.
+ */
+function decodeHash(hash) {
+  try {
+    return decodeURIComponent(hash)
+  } catch {
+    return hash
+  }
 }
 
 /**

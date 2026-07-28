@@ -86,6 +86,14 @@ test('이미 열린 탭을 다시 열면 옮겨가기만 한다', () => {
   assert.deepEqual(previews(t), [])
 })
 
+test('이미 열어 둔 문서의 다른 절을 가리키는 링크는 앵커만 갱신한다', () => {
+  const t = useTabs()
+  t.open({ ...file('a.md'), hash: '첫-절' }, { pin: true })
+  t.open({ ...file('a.md'), hash: '둘째-절' })
+  assert.equal(t.tabs.value.length, 1, '같은 문서라 탭이 늘지 않는다')
+  assert.equal(t.tabs.value[0].hash, '둘째-절')
+})
+
 // --- 되살리기 (⌥⇧T)
 
 test('붙잡은 탭을 닫으면 되살릴 수 있다', () => {

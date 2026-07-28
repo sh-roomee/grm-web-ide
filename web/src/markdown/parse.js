@@ -33,7 +33,75 @@ const TABLE_DELIM = /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/
 
 export function parseMarkdown(src) {
   const text = String(src ?? '').replace(/\r\n?/g, '\n')
-  return parseBlocks(text.split('\n'))
+  const blocks = parseBlocks(text.split('\n'))
+  assignHeadingIds(blocks)
+  return blocks
+}
+
+/** 인라인 노드에서 글자만 뽑는다. 제목 id와 목차 이름에 쓴다. */
+export function inlineText(nodes) {
+  return (nodes ?? [])
+    .map((n) => {
+      if (n.type === 'text' || n.type === 'code') return n.value
+      if (n.type === 'image') return n.alt ?? ''
+      if (n.type === 'break') return ' '
+      return inlineText(n.children)
+    })
+    .join('')
+}
+
+/**
+ * 제목 → 앵커 id.
+ *
+ * GitHub 규칙을 따른다: 소문자로 내리고, 공백을 `-`로 바꾸고, 문장부호를 버린다.
+ * 한글은 그대로 남긴다 — 이 저장소 문서의 링크가 `#설계-결정` 처럼 한글 앵커다.
+ * 문서에 이미 적혀 있는 링크가 그대로 동작해야 하므로 규칙을 새로 만들 수 없다.
+ */
+export function slugify(text) {
+  return String(text ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    // 글자·숫자·`-`·`_` 만 남긴다. 한글/한자 등은 \p{L} 로 지켜진다.
+    .replace(/[^\p{L}\p{N}\-_]/gu, '')
+}
+
+/**
+ * 트리를 훑어 제목마다 id를 붙인다.
+ *
+ * 중복은 GitHub처럼 `-1`, `-2`를 뒤에 붙인다. 같은 이름의 절이 두 개 있을 때
+ * 앞의 것으로만 가는 것보다는 낫고, 이미 적힌 링크도 첫 번째를 가리킨다.
+ *
+ * 인용·목록 안의 제목도 센다 — 문서 전체에서 유일해야 id가 뜻을 갖는다.
+ */
+function assignHeadingIds(blocks, seen = new Map()) {
+  for (const block of blocks) {
+    if (block.type === 'heading') {
+      const base = slugify(inlineText(block.inline)) || 'section'
+      const n = seen.get(base) ?? 0
+      seen.set(base, n + 1)
+      block.id = n === 0 ? base : `${base}-${n}`
+      continue
+    }
+    if (block.type === 'quote') assignHeadingIds(block.blocks, seen)
+    else if (block.type === 'list') {
+      for (const item of block.items) assignHeadingIds(item.blocks, seen)
+    }
+  }
+  return blocks
+}
+
+/**
+ * 목차. 긴 문서에서 원하는 절로 가는 유일한 길이다.
+ *
+ * 최상위 제목(h1)은 넣지 않는다 — 문서 제목 하나뿐이고 목차의 첫 줄이 문서 이름이면
+ * 자리만 차지한다. h5·h6도 넣지 않는다: 이 저장소 문서에는 거의 없고, 넣으면 목차가
+ * 본문만큼 길어진다.
+ */
+export function tableOfContents(blocks) {
+  return (blocks ?? [])
+    .filter((b) => b.type === 'heading' && b.level >= 2 && b.level <= 4)
+    .map((b) => ({ id: b.id, level: b.level, text: inlineText(b.inline) }))
 }
 
 function isBlank(line) {

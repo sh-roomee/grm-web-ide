@@ -73,8 +73,17 @@ const markFailed = (src) => {
       >
         <MdInline :nodes="node.children" :ctx="ctx" />
       </a>
-      <!-- 문서 안 앵커. 아직 이동은 하지 않아 링크로 그리지 않는다 -->
-      <span v-else class="md-anchor"><MdInline :nodes="node.children" :ctx="ctx" /></span>
+      <!-- 문서 안 제목으로 이동 -->
+      <a
+        v-else-if="ctx.linkOf(node.href)?.kind === 'anchor'"
+        class="md-link anchor"
+        :href="node.href"
+        @click.prevent="ctx.jumpTo(ctx.linkOf(node.href).id)"
+      >
+        <MdInline :nodes="node.children" :ctx="ctx" />
+      </a>
+      <!-- 어디로도 보낼 수 없는 주소(저장소 밖으로 나가는 ..)는 글자로 남긴다 -->
+      <span v-else><MdInline :nodes="node.children" :ctx="ctx" /></span>
     </template>
   </template>
 </template>

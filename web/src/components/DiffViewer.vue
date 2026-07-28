@@ -276,6 +276,9 @@ watch(
 )
 
 const wrap = ref(false)
+// 목차 토글을 툴바에서 누르기 위한 참조. 목차 상태는 미리보기가 소유한다 —
+// 문서마다 제목 개수가 달라 "목차가 있는지"를 아는 쪽이 거기다.
+const mdPreview = ref(null)
 const scroller = ref(null)
 const cursor = ref(0) // 현재 몇 번째 변경 블록을 보고 있는지
 
@@ -609,6 +612,17 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
           미리보기
         </button>
 
+        <!-- 그린 문서에서 절로 가는 길. 제목이 세 개 아래면 뜨지 않는다 -->
+        <button
+          v-if="previewOn && isMarkdown && mdPreview?.hasToc"
+          class="ctl"
+          :class="{ on: mdPreview?.tocOpen }"
+          title="목차"
+          @click="mdPreview?.toggleToc()"
+        >
+          목차
+        </button>
+
         <button
           v-if="!previewOn"
           class="ctl"
@@ -694,9 +708,11 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
           <p v-else-if="mdLoading && !mdText" class="notice">문서를 불러오는 중…</p>
           <MarkdownPreview
             v-else
+            ref="mdPreview"
             :text="mdText"
             :path="previewTarget.path"
             :target="previewTarget"
+            :hash="file?.hash ?? ''"
             @open-file="emit('open-file', $event)"
           />
         </template>

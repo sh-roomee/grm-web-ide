@@ -4,8 +4,9 @@ import path from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { parseMarkdown } from '../web/src/markdown/parse.js'
+import { parseMarkdown, slugify, tableOfContents, inlineText } from '../web/src/markdown/parse.js'
 import { parseInline, safeHref } from '../web/src/markdown/inline.js'
+import { classifyLink } from '../web/src/markdown/links.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -344,6 +345,122 @@ test('HTML 주석은 버린다', () => {
   const blocks = parseMarkdown('<!-- 안 보이는 메모 -->\n\n본문')
   assert.equal(blocks.length, 1)
   assert.equal(blockText(blocks[0]), '본문')
+})
+
+// --- 제목 앵커와 목차
+
+test('제목에 앵커 id를 붙인다', () => {
+  const [h] = parseMarkdown('## 설계 결정')
+  assert.equal(h.id, '설계-결정')
+})
+
+test('앵커 규칙은 GitHub와 같다', () => {
+  // 문서에 이미 적혀 있는 링크가 그대로 동작해야 하므로 규칙을 새로 만들 수 없다
+  assert.equal(slugify('설계 결정'), '설계-결정')
+  assert.equal(slugify('GET /api/blob'), 'get-apiblob')
+  assert.equal(slugify('코드 표면은 캔버스보다 밝다 (2026-07-27)'), '코드-표면은-캔버스보다-밝다-2026-07-27')
+  assert.equal(slugify('`git grep` 을 쓴다'), 'git-grep-을-쓴다')
+  assert.equal(slugify('겉모습은 Apple 플랫폼의 재료를 그대로 쓴다'), '겉모습은-apple-플랫폼의-재료를-그대로-쓴다')
+})
+
+test('같은 이름의 제목은 뒤에 번호를 붙인다', () => {
+  const blocks = parseMarkdown('## 같은 이름\n\n## 같은 이름\n\n## 같은 이름')
+  assert.deepEqual(
+    blocks.map((b) => b.id),
+    ['같은-이름', '같은-이름-1', '같은-이름-2'],
+  )
+})
+
+test('인용·목록 안의 제목도 문서 전체에서 유일하다', () => {
+  const blocks = parseMarkdown('## 이름\n\n> ## 이름\n\n- ## 이름')
+  const ids = []
+  const walk = (bs) => {
+    for (const b of bs) {
+      if (b.type === 'heading') ids.push(b.id)
+      else if (b.type === 'quote') walk(b.blocks)
+      else if (b.type === 'list') b.items.forEach((it) => walk(it.blocks))
+    }
+  }
+  walk(blocks)
+  assert.deepEqual(ids, ['이름', '이름-1', '이름-2'])
+})
+
+test('앵커 id는 인라인 문법을 벗긴 글자로 만든다', () => {
+  const [h] = parseMarkdown('## **굵은** `코드` 제목')
+  assert.equal(inlineText(h.inline), '굵은 코드 제목')
+  assert.equal(h.id, '굵은-코드-제목')
+})
+
+test('목차는 h2~h4만 담는다', () => {
+  const blocks = parseMarkdown('# 문서\n\n## 둘\n\n### 셋\n\n#### 넷\n\n##### 다섯')
+  assert.deepEqual(
+    tableOfContents(blocks).map((t) => [t.level, t.text]),
+    [
+      [2, '둘'],
+      [3, '셋'],
+      [4, '넷'],
+    ],
+  )
+})
+
+test('목차 항목은 그 제목의 id를 가리킨다', () => {
+  const blocks = parseMarkdown('## 설계 결정\n\n### 왜 그랬나')
+  assert.deepEqual(
+    tableOfContents(blocks).map((t) => t.id),
+    ['설계-결정', '왜-그랬나'],
+  )
+})
+
+test('#앵커 링크는 문서 안 이동으로 분류된다', () => {
+  const link = classifyLink('docs/ARCHITECTURE.md', '#설계-결정')
+  assert.deepEqual(link, { kind: 'anchor', id: '설계-결정' })
+})
+
+test('파일#앵커 링크는 경로와 앵커로 갈린다', () => {
+  const link = classifyLink('docs/ROADMAP.md', 'ARCHITECTURE.md#설계-결정')
+  assert.deepEqual(link, { kind: 'file', path: 'docs/ARCHITECTURE.md', hash: '설계-결정' })
+})
+
+test('퍼센트 인코딩된 앵커를 되돌린다', () => {
+  // GitHub에서 복사한 링크는 한글이 인코딩돼 있다
+  const link = classifyLink('a.md', '#%EC%84%A4%EA%B3%84-%EA%B2%B0%EC%A0%95')
+  assert.equal(link.id, '설계-결정')
+})
+
+test('망가진 인코딩에도 예외를 던지지 않는다', () => {
+  assert.doesNotThrow(() => classifyLink('a.md', '#%E0%A4%A'))
+})
+
+test('문서에 적힌 앵커가 실제 제목 id와 맞는다', () => {
+  // 이게 어긋나면 링크는 눌리는데 아무 일도 일어나지 않는다 — 가장 알기 어려운 고장이다.
+  const docs = [
+    'README.md',
+    'CLAUDE.md', // ROADMAP·ONBOARDING 이 `../CLAUDE.md#...` 로 가리킨다
+    'docs/ARCHITECTURE.md',
+    'docs/ROADMAP.md',
+    'docs/ONBOARDING.md',
+    'docs/API.md',
+  ]
+  const idsOf = (rel) => {
+    const blocks = parseMarkdown(fs.readFileSync(path.join(root, rel), 'utf8'))
+    return new Set(blocks.filter((b) => b.type === 'heading').map((b) => b.id))
+  }
+  const ids = new Map(docs.map((d) => [d, idsOf(d)]))
+
+  const broken = []
+  for (const rel of docs) {
+    const src = fs.readFileSync(path.join(root, rel), 'utf8')
+    for (const m of src.matchAll(/\[[^\]]*\]\(([^)\s]*#[^)\s]+)\)/g)) {
+      const link = classifyLink(rel, m[1])
+      if (!link) continue
+      if (link.kind === 'anchor') {
+        if (!ids.get(rel).has(link.id)) broken.push(`${rel} → #${link.id}`)
+      } else if (link.kind === 'file' && ids.has(link.path)) {
+        if (!ids.get(link.path).has(link.hash)) broken.push(`${rel} → ${link.path}#${link.hash}`)
+      }
+    }
+  }
+  assert.deepEqual(broken, [], `가리키는 제목이 없는 링크: ${broken.join(', ')}`)
 })
 
 // --- 실제 문서로 확인 (이 저장소의 docs/ 가 시험지다)

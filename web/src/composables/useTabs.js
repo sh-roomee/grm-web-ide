@@ -52,6 +52,8 @@ export function useTabs() {
     if (found) {
       // 줄 이동 같은 요청은 갱신해 준다 (⌘⇧F 결과에서 다시 열 때)
       if (doc.line) found.line = doc.line
+      // 앵커도 갱신한다. 이미 열어 둔 문서의 다른 절을 가리키는 링크를 눌렀을 때다.
+      if (doc.hash) found.hash = doc.hash
       // 미리 보기로 보던 것을 두 번 누르면 그 자리에서 붙잡는다
       if (pin) found.preview = false
       found.seenAt = ++clock

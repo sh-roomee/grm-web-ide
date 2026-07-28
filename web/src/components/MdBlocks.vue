@@ -40,12 +40,12 @@ const fences = computed(() => {
 
 <template>
   <template v-for="(block, i) in blocks" :key="i">
-    <h1 v-if="block.type === 'heading' && block.level === 1"><MdInline :nodes="block.inline" :ctx="ctx" /></h1>
-    <h2 v-else-if="block.type === 'heading' && block.level === 2"><MdInline :nodes="block.inline" :ctx="ctx" /></h2>
-    <h3 v-else-if="block.type === 'heading' && block.level === 3"><MdInline :nodes="block.inline" :ctx="ctx" /></h3>
-    <h4 v-else-if="block.type === 'heading' && block.level === 4"><MdInline :nodes="block.inline" :ctx="ctx" /></h4>
-    <h5 v-else-if="block.type === 'heading' && block.level === 5"><MdInline :nodes="block.inline" :ctx="ctx" /></h5>
-    <h6 v-else-if="block.type === 'heading'"><MdInline :nodes="block.inline" :ctx="ctx" /></h6>
+    <h1 v-if="block.type === 'heading' && block.level === 1" :id="block.id"><MdInline :nodes="block.inline" :ctx="ctx" /></h1>
+    <h2 v-else-if="block.type === 'heading' && block.level === 2" :id="block.id"><MdInline :nodes="block.inline" :ctx="ctx" /></h2>
+    <h3 v-else-if="block.type === 'heading' && block.level === 3" :id="block.id"><MdInline :nodes="block.inline" :ctx="ctx" /></h3>
+    <h4 v-else-if="block.type === 'heading' && block.level === 4" :id="block.id"><MdInline :nodes="block.inline" :ctx="ctx" /></h4>
+    <h5 v-else-if="block.type === 'heading' && block.level === 5" :id="block.id"><MdInline :nodes="block.inline" :ctx="ctx" /></h5>
+    <h6 v-else-if="block.type === 'heading'" :id="block.id"><MdInline :nodes="block.inline" :ctx="ctx" /></h6>
 
     <p v-else-if="block.type === 'paragraph'"><MdInline :nodes="block.inline" :ctx="ctx" /></p>
 
