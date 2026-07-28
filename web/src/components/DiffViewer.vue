@@ -3,8 +3,9 @@ import { computed, nextTick, ref, watch } from 'vue'
 
 import { buildSpans, tokenizeLine, findRanges } from '../highlight/index.js'
 import { flattenInline } from '../inline.js'
-import { blobUrl } from '../api.js'
+import { blobUrl, fetchBlobText } from '../api.js'
 import ImagePreview from './ImagePreview.vue'
+import MarkdownPreview from './MarkdownPreview.vue'
 
 const props = defineProps({
   file: { type: Object, default: null },
@@ -32,6 +33,8 @@ const emit = defineEmits([
   'comment',
   'delete-comment',
   'add-context',
+  // 마크다운 미리보기의 문서 간 링크. 저장소 안의 파일이면 탭으로 연다
+  'open-file',
 ])
 
 /**
@@ -184,22 +187,93 @@ const rangeLabel = (comment) =>
  */
 const showPreview = ref(true)
 
+const previewKind = computed(() => props.diff?.preview?.kind ?? null)
+const isMarkdown = computed(() => previewKind.value === 'markdown')
+
+/**
+ * 마크다운은 기본값이 모드에 따라 다르다.
+ *
+ * ⌘P로 문서를 **읽으려고** 열었으면 그려진 쪽이 맞다. 반대로 변경 목록에서 골랐다면
+ * 알고 싶은 것은 "AI가 문서를 어떻게 바꿨나"이고, 그건 diff로만 보인다. 그림은
+ * 이 갈림이 없어서(png는 diff가 아예 없다) 지금까지 상수로 두어도 됐다.
+ */
+watch(
+  () => [props.file?.path, isMarkdown.value, props.single],
+  () => {
+    if (isMarkdown.value) showPreview.value = props.single
+    else showPreview.value = true
+  },
+  { immediate: true },
+)
+
 const previewOn = computed(() => {
   if (!props.diff?.preview) return false
   return props.diff.binary || showPreview.value
+})
+
+/** 지금 보고 있는 버전. 미리보기 주소와 마크다운 내용이 같은 곳을 가리키게 한다. */
+const previewTarget = computed(() => {
+  const diff = props.diff
+  return {
+    path: diff?.path ?? props.file?.path ?? '',
+    staged: diff?.staged,
+    untracked: diff?.untracked,
+    sha: diff?.sha ?? null,
+    base: Boolean(diff?.base),
+  }
 })
 
 /** 미리보기 주소는 지금 보고 있는 diff와 같은 파라미터로 만든다. */
 const previewUrls = computed(() => {
   const diff = props.diff
   if (!diff?.preview) return { before: '', after: '' }
-  const target = { path: diff.path ?? props.file?.path, staged: diff.staged, untracked: diff.untracked }
-  const opts = { sha: diff.sha ?? null, base: Boolean(diff.base) }
+  const target = previewTarget.value
+  const opts = { sha: target.sha, base: target.base }
   return {
     before: blobUrl(target, 'before', opts),
     after: blobUrl(target, 'after', opts),
   }
 })
+
+/**
+ * 마크다운 원문.
+ *
+ * diff 행을 이어붙이지 않는다 — "변경 부분"만 받아 온 상태에서는 문서 절반이 비어
+ * 이상한 문서가 그려진다. 보기 범위와 무관하게 항상 파일 전체를 받는다.
+ */
+const mdText = ref('')
+const mdError = ref('')
+const mdLoading = ref(false)
+
+watch(
+  () => [isMarkdown.value && previewOn.value, previewTarget.value.path, previewUrls.value.after],
+  async ([wanted]) => {
+    if (!wanted) {
+      mdText.value = ''
+      mdError.value = ''
+      return
+    }
+    const url = previewUrls.value.after
+    mdLoading.value = true
+    mdError.value = ''
+    try {
+      const text = await fetchBlobText(previewTarget.value, 'after', {
+        sha: previewTarget.value.sha,
+        base: previewTarget.value.base,
+      })
+      // 그 사이에 다른 파일로 옮겼으면 늦게 온 응답을 버린다
+      if (url !== previewUrls.value.after) return
+      mdText.value = text
+    } catch (err) {
+      if (url !== previewUrls.value.after) return
+      mdText.value = ''
+      mdError.value = err.message
+    } finally {
+      mdLoading.value = false
+    }
+  },
+  { immediate: true },
+)
 
 const wrap = ref(false)
 const scroller = ref(null)
@@ -520,12 +594,16 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
           </button>
         </div>
 
-        <!-- 그림으로도, 텍스트로도 볼 수 있는 파일(svg)에만 뜬다 -->
+        <!-- 그려서도, 텍스트로도 볼 수 있는 파일(svg·마크다운)에만 뜬다 -->
         <button
           v-if="diff?.preview && !diff.binary"
           class="ctl"
           :class="{ on: showPreview }"
-          title="그림으로 보기 / 텍스트 diff로 보기"
+          :title="
+            isMarkdown
+              ? '문서로 보기 / 텍스트 diff로 보기'
+              : '그림으로 보기 / 텍스트 diff로 보기'
+          "
           @click="showPreview = !showPreview"
         >
           미리보기
@@ -611,6 +689,17 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
         <p v-if="error" class="notice err">{{ error }}</p>
         <p v-else-if="loading" class="notice">불러오는 중…</p>
         <p v-else-if="!file" class="notice"></p>
+        <template v-else-if="previewOn && isMarkdown">
+          <p v-if="mdError" class="notice err">{{ mdError }}</p>
+          <p v-else-if="mdLoading && !mdText" class="notice">문서를 불러오는 중…</p>
+          <MarkdownPreview
+            v-else
+            :text="mdText"
+            :path="previewTarget.path"
+            :target="previewTarget"
+            @open-file="emit('open-file', $event)"
+          />
+        </template>
         <ImagePreview
           v-else-if="previewOn"
           :preview="diff.preview"
@@ -1299,54 +1388,6 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
 .find button:hover {
   background: rgba(118, 118, 128, 0.24);
   color: var(--fg);
-}
-
-/* --- 문법 강조 --- */
-.tk-keyword {
-  color: var(--tok-keyword);
-}
-.tk-string {
-  color: var(--tok-string);
-}
-.tk-number {
-  color: var(--tok-number);
-}
-.tk-comment {
-  color: var(--tok-comment);
-  font-style: italic;
-}
-.tk-function {
-  color: var(--tok-function);
-}
-.tk-tag {
-  color: var(--tok-tag);
-}
-.tk-attr {
-  color: var(--tok-attr);
-}
-.tk-property {
-  color: var(--tok-property);
-}
-.tk-directive {
-  color: var(--tok-directive);
-}
-.tk-selector {
-  color: var(--tok-selector);
-}
-.tk-variable {
-  color: var(--tok-variable);
-}
-.tk-entity {
-  color: var(--tok-entity);
-}
-.tk-interp {
-  color: var(--tok-interp);
-}
-.tk-operator {
-  color: var(--tok-operator);
-}
-.tk-punct {
-  color: var(--tok-punct);
 }
 
 .line[data-block] {

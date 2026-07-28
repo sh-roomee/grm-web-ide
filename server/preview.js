@@ -32,12 +32,31 @@ function extname(relPath) {
 }
 
 /**
+ * 마크다운도 "눈으로 봐야 판단이 되는" 파일이다.
+ *
+ * diff로 보면 `## 제목`과 `| a | b |` 가 글자로 남는다. 문서를 검토할 때 정작
+ * 필요한 것이 그 모양인데, 그걸 보려고 IDE나 GitHub를 켜면 이 도구의 존재 이유가
+ * 사라진다.
+ *
+ * 그리기는 클라이언트가 한다(`web/src/markdown/`). 서버는 이미지와 마찬가지로
+ * "무엇으로 볼 수 있는지"만 말하고, 내용은 /api/blob 이 글자로 내려보낸다.
+ * text/markdown 은 브라우저가 실행하지 않고, nosniff 까지 붙어 나간다.
+ */
+const TEXT_MIME = {
+  '.md': 'text/markdown; charset=utf-8',
+  '.markdown': 'text/markdown; charset=utf-8',
+}
+
+/**
  * 미리보기 정보. 미리볼 수 없으면 null.
- * @returns {{ kind: 'image', mime: string } | null}
+ * @returns {{ kind: 'image'|'markdown', mime: string } | null}
  */
 export function previewInfo(relPath) {
-  const mime = IMAGE_MIME[extname(relPath)]
-  return mime ? { kind: 'image', mime } : null
+  const ext = extname(relPath)
+  const image = IMAGE_MIME[ext]
+  if (image) return { kind: 'image', mime: image }
+  const text = TEXT_MIME[ext]
+  return text ? { kind: 'markdown', mime: text } : null
 }
 
 /** 사람이 읽는 크기. 리뷰에서 "이 이미지가 갑자기 커졌나"를 보려고 쓴다. */

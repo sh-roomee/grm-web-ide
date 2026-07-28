@@ -208,7 +208,11 @@ export function createServer({ repo, token, gitDir, dev = false }) {
       // 커졌나"는 diff 텍스트로는 절대 보이지 않는 정보다.
       const info = previewInfo(relPath)
       let preview = null
-      if (info) {
+      // 크기는 이미지에만 뜻이 있다. 마크다운에 바이트 수를 보여줘도 판단에 쓰이지
+      // 않으므로 blobSize 두 번을 아낀다.
+      if (info && info.kind !== 'image') {
+        preview = { ...info, before: null, after: null }
+      } else if (info) {
         const baselineRef = base ? gitApi.baselineRef() : null
         const revs = {
           before: previewRev({ side: 'before', sha, staged, base, untracked, baselineRef }),

@@ -908,6 +908,7 @@ function onKey(event) {
           @comment="addComment($event)"
           @delete-comment="comments.remove($event)"
           @add-context="stash($event)"
+          @open-file="openFile({ path: $event })"
         >
           <template #actions>
             <!-- Cursor처럼 보고 있는 파일을 하나씩 확인해 넘긴다 -->
