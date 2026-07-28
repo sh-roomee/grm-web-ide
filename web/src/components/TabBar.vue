@@ -4,7 +4,7 @@ defineProps({
   activeId: { type: String, default: null },
 })
 
-const emit = defineEmits(['activate', 'close', 'close-all'])
+const emit = defineEmits(['activate', 'pin', 'close', 'close-all'])
 
 const KIND = {
   worktree: { char: 'M', cls: 'k-work', title: '워킹트리 변경' },
@@ -26,9 +26,12 @@ const dirName = (path) => {
         v-for="tab in tabs"
         :key="tab.id"
         class="tab"
-        :class="{ on: tab.id === activeId }"
-        :title="`${tab.path}${tab.sub ? ` · ${tab.sub}` : ''}`"
+        :class="{ on: tab.id === activeId, preview: tab.preview }"
+        :title="`${tab.path}${tab.sub ? ` · ${tab.sub}` : ''}${
+          tab.preview ? ' · 미리 보기 (두 번 누르면 붙잡는다)' : ''
+        }`"
         @click="emit('activate', tab.id)"
+        @dblclick="emit('pin', tab.id)"
         @mousedown.middle.prevent="emit('close', tab.id)"
       >
         <span class="kind" :class="KIND[tab.kind].cls" :title="KIND[tab.kind].title">
@@ -122,6 +125,16 @@ const dirName = (path) => {
   font-size: 12.5px;
   font-weight: 500;
   white-space: nowrap;
+}
+/**
+ * 미리 보기 탭은 기울여 쓴다.
+ *
+ * 다음에 무엇을 고르면 이 자리가 없어지는지가 보여야 한다. 색이나 투명도로 구분하면
+ * "안 읽은 것"이나 "낡은 것"처럼 읽히는데, 기울임은 IDE에서 이미 이 뜻으로 쓰인다.
+ */
+.tab.preview .name {
+  font-style: italic;
+  font-weight: 400;
 }
 .dir {
   flex: 1;

@@ -11,7 +11,7 @@ import SummarySheet from './components/SummarySheet.vue'
 import TabBar from './components/TabBar.vue'
 import { useReview } from './composables/useReview.js'
 import { useHistory } from './composables/useHistory.js'
-import { useTabs } from './composables/useTabs.js'
+import { useTabs, tabId } from './composables/useTabs.js'
 import { useComments } from './composables/useComments.js'
 import { useContext } from './composables/useContext.js'
 import { useCodeFont } from './composables/useCodeFont.js'
@@ -424,6 +424,24 @@ watch(commitFile, (file) => {
 })
 
 /**
+ * 두 번 누르면 붙잡는다.
+ *
+ * 한 번 누르는 것(`select`)이 이미 미리 보기로 열어 두었으므로, 여기서는 그 탭을
+ * 붙잡기만 하면 된다 — 브라우저가 click 다음에 dblclick을 보내는 순서에 기댄다.
+ * 열려 있는지 다시 찾지 않고 `tabId`로 곧장 짚는다. 목록이 그 사이에 바뀌었어도
+ * 엉뚱한 탭을 붙잡지 않는다.
+ */
+function pinWorktree(file) {
+  tabs.pin(tabId({ kind: 'worktree', path: file.path, staged: file.staged }))
+}
+
+function pinCommitFile(file) {
+  const sha = history.selectedSha.value
+  if (!sha) return
+  tabs.pin(tabId({ kind: 'commit', path: file.path, sha }))
+}
+
+/**
  * 지금 보고 있는 탭의 내용을 받는다.
  *
  * 이미 받아 둔 것이 있고 낡지 않았으면 다시 받지 않는다 — 탭을 오가는 것이
@@ -635,11 +653,27 @@ function onKey(event) {
     tabs.step(event.key === 'ArrowRight' ? 1 : -1)
     return
   }
-  // ⌥W 로 현재 탭 닫기 (⌘W는 브라우저 창을 닫는다)
-  if (event.altKey && event.key.toLowerCase() === 'w' && tabs.activeId.value) {
-    event.preventDefault()
-    tabs.close(tabs.activeId.value)
-    return
+  /**
+   * ⌥ + 글자는 `event.code`로 본다. `event.key`로 보면 안 된다.
+   *
+   * macOS에서 ⌥를 누르면 OS가 글자를 바꿔 보낸다 — ⌥W는 `key: '∑'`, ⌥T는 `key: '†'`다.
+   * `key.toLowerCase() === 'w'` 는 그래서 실제 키보드에서 맞지 않는다. `code`는 자리
+   * 이름(`KeyW`)이라 배열·조합에 흔들리지 않는다.
+   */
+  if (event.altKey && !meta) {
+    // ⌥W 로 현재 탭 닫기 (⌘W는 브라우저 창을 닫는다)
+    if (event.code === 'KeyW' && tabs.activeId.value) {
+      event.preventDefault()
+      tabs.close(tabs.activeId.value)
+      return
+    }
+    // ⌥⇧T 로 마지막에 닫은 탭 되살리기 (⌘⇧T는 브라우저가 자기 탭을 되살린다)
+    if (event.code === 'KeyT' && event.shiftKey) {
+      event.preventDefault()
+      const back = tabs.reopen()
+      if (back) loadActive()
+      return
+    }
   }
 
   // 입력창에서는 j/k 같은 단일 키를 가로채지 않는다.
@@ -819,6 +853,7 @@ function onKey(event) {
           :is-fresh="isFresh"
           :risks-for="risksFor"
           @select="selected = $event"
+          @pin="pinWorktree($event)"
           @toggle-review="review.toggle($event)"
           @review-all="review.markAll($event.files, true)"
           @stage="act(api.stageFile, $event)"
@@ -870,6 +905,7 @@ function onKey(event) {
               title="바뀐 파일"
               count-label="개"
               @select="commitFile = $event"
+              @pin="pinCommitFile($event)"
             />
           </div>
         </div>
@@ -880,6 +916,7 @@ function onKey(event) {
           :tabs="tabs.tabs.value"
           :active-id="tabs.activeId.value"
           @activate="tabs.activate($event)"
+          @pin="tabs.pin($event)"
           @close="tabs.close($event)"
           @close-all="tabs.closeAll()"
         />

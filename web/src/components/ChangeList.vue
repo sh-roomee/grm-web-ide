@@ -15,7 +15,7 @@ const props = defineProps({
   countLabel: { type: String, default: 'files' },
 })
 
-const emit = defineEmits(['select', 'toggle-review', 'stage', 'unstage', 'review-all'])
+const emit = defineEmits(['select', 'pin', 'toggle-review', 'stage', 'unstage', 'review-all'])
 
 const STATUS_CHAR = {
   modified: 'M',
@@ -74,7 +74,9 @@ const totalCount = computed(() => props.groups.reduce((n, g) => n + g.files.leng
             :key="`${group.key}:${file.path}`"
             class="row"
             :class="{ active: isSame(file, selected), reviewed: isReviewed(file) }"
+            title="한 번 누르면 미리 보기, 두 번 누르면 탭으로 붙잡는다"
             @click="emit('select', file)"
+            @dblclick="emit('pin', file)"
           >
             <input
               v-if="!readonly"
