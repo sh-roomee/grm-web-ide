@@ -668,6 +668,20 @@ svg도 이 경로로 나가지만 화면은 `<img>`로만 그린다 — 문서�
 
 응답 `{ "ok": true }`. `stage`는 `git add`, `unstage`는 `git reset HEAD --`.
 
+## GET /api/blame
+
+`?path=` 파일의 줄별 blame (워킹트리 기준, rev 없음).
+
+```json
+{
+  "lines": { "1": "3a909f9…", "2": "3a909f9…" },
+  "commits": { "3a909f9…": { "author": "강성훈", "mail": "a@b.c", "time": 1700000000, "summary": "…" } }
+}
+```
+
+줄마다 상세를 실으면 20,000줄에서 응답이 수 MB가 되므로 줄→sha와 sha→상세를
+가른다. 아직 커밋되지 않은 줄은 sha가 전부 0이다. 추적되지 않은 파일은 400.
+
 ## GET /api/compare
 
 브랜치 비교 요약. `?base=<ref>`를 주면 그 브랜치와, 없으면 기본 브랜치

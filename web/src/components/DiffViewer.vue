@@ -25,6 +25,8 @@ const props = defineProps({
   commentsFor: { type: Function, default: () => null },
   // 지금 파일의 위험 신호 [{ kind, label, count, samples }]
   risks: { type: Array, default: () => [] },
+  // 줄별 blame (켰을 때만): { lines: {줄: sha}, commits: {sha: {...}} }
+  blame: { type: Object, default: null },
 })
 
 const emit = defineEmits([
@@ -35,7 +37,38 @@ const emit = defineEmits([
   'add-context',
   // 마크다운 미리보기의 문서 간 링크. 저장소 안의 파일이면 탭으로 연다
   'open-file',
+  // blame 거터에서 커밋을 눌렀을 때 — 히스토리에서 그 커밋을 연다
+  'open-commit',
 ])
+
+// --- Blame 거터 (IntelliJ의 Annotate 자리)
+const ZERO_SHA = '0'.repeat(40)
+
+/** 지금 파일 기준 줄 번호의 blame. 없으면 null. */
+function blameAt(num) {
+  if (!props.blame || !num) return null
+  const sha = props.blame.lines[num]
+  if (!sha) return null
+  return { sha, uncommitted: sha === ZERO_SHA, ...(props.blame.commits[sha] ?? {}) }
+}
+
+function blameLabel(b) {
+  if (!b) return ''
+  if (b.uncommitted) return '미커밋'
+  const date = new Date(b.time * 1000).toLocaleDateString('ko-KR')
+  return `${date} ${b.author ?? ''}`
+}
+
+function blameTitle(b) {
+  if (!b) return ''
+  if (b.uncommitted) return '아직 커밋되지 않은 변경'
+  const when = new Date(b.time * 1000).toLocaleString('ko-KR')
+  return `commit ${b.sha}\n작성자: ${b.author} <${b.mail ?? ''}>\n날짜: ${when}\n\n${b.summary ?? ''}\n\n클릭하면 이 커밋을 연다`
+}
+
+function blameClick(b) {
+  if (b && !b.uncommitted) emit('open-commit', b.sha)
+}
 
 /**
  * 텍스트 선택을 한쪽 컬럼에 붙잡아 둔다.
@@ -748,9 +781,16 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
             <div
               v-else-if="item.kind === 'line'"
               class="iline"
-              :class="`t-${item.type}`"
+              :class="[`t-${item.type}`, { 'with-blame': blame }]"
               :data-block="item.blockIndex ?? undefined"
             >
+              <span
+                v-if="blame"
+                class="blame-cell"
+                :title="blameTitle(blameAt(item.side === 'right' ? item.cell?.num : null))"
+                @click="blameClick(blameAt(item.side === 'right' ? item.cell?.num : null))"
+                >{{ blameLabel(blameAt(item.side === 'right' ? item.cell?.num : null)) }}</span
+              >
               <span
                 class="gutter"
                 :class="{
@@ -779,10 +819,17 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
             <div
               v-else
               class="line"
-              :class="[`t-${item.row.type}`, { single }]"
+              :class="[`t-${item.row.type}`, { single, 'with-blame': blame }]"
               :data-block="item.blockIndex ?? undefined"
               :data-line="single ? item.row.right?.num : undefined"
             >
+              <span
+                v-if="blame"
+                class="blame-cell"
+                :title="blameTitle(blameAt(item.row.right?.num))"
+                @click="blameClick(blameAt(item.row.right?.num))"
+                >{{ blameLabel(blameAt(item.row.right?.num)) }}</span
+              >
               <template v-if="!single">
                 <span
                   class="gutter"
@@ -1150,6 +1197,13 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
 .line.single {
   grid-template-columns: 4.2em minmax(0, 1fr);
 }
+/* blame을 켜면 맨 왼쪽에 열이 하나 는다 */
+.line.with-blame {
+  grid-template-columns: 148px 4.2em minmax(0, 1fr) 4.2em minmax(0, 1fr);
+}
+.line.single.with-blame {
+  grid-template-columns: 148px 4.2em minmax(0, 1fr);
+}
 
 /**
  * 한 줄 보기. 번호 하나 + 부호 하나 + 코드.
@@ -1160,6 +1214,9 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
 .iline {
   display: grid;
   grid-template-columns: 3.7em 1.15em minmax(0, 1fr);
+}
+.iline.with-blame {
+  grid-template-columns: 148px 3.7em 1.15em minmax(0, 1fr);
 }
 .sign {
   text-align: center;
@@ -1202,6 +1259,24 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
   user-select: none;
   font-variant-numeric: tabular-nums;
   font-size: 0.84em;
+}
+
+/* Blame 거터 — 켰을 때만 줄 왼쪽에 날짜·작성자. 누르면 그 커밋으로 */
+.blame-cell {
+  padding: 0 8px 0 10px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--fg-faint);
+  background: var(--diff-gutter);
+  border-right: 0.5px solid var(--border);
+  user-select: none;
+  font-size: 0.8em;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.blame-cell:hover {
+  color: var(--accent);
 }
 .gutter.clickable {
   cursor: pointer;

@@ -101,6 +101,9 @@ export function fetchDiff(file, { context = 3, sha = null, compare = 'head', aga
 export const fetchCompare = (base = null) =>
   request(`/api/compare${base ? `?base=${encodeURIComponent(base)}` : ''}`)
 
+/** 줄별 blame — { lines: {줄: sha}, commits: {sha: {author, mail, time, summary}} } */
+export const fetchBlame = (path) => request(`/api/blame?path=${encodeURIComponent(path)}`)
+
 // 기준점 — "여기까지 봤다"
 export const setBaseline = () => request('/api/baseline', { method: 'POST', body: '{}' })
 export const clearBaseline = () => request('/api/baseline', { method: 'DELETE' })

@@ -221,6 +221,22 @@ export function createServer({ repo, token, gitDir, dev = false }) {
     }),
   )
 
+  // 줄별 blame — 우클릭 → Git → Blame 주석
+  app.get(
+    '/api/blame',
+    wrap(async (req, res) => {
+      const relPath = req.query.path
+      safeJoin(repo, relPath)
+      try {
+        res.json(await gitApi.blameFile(repo, relPath))
+      } catch (err) {
+        // 추적되지 않은 파일 등 — 서버 잘못이 아니다
+        err.status ??= 400
+        throw err
+      }
+    }),
+  )
+
   // --- 브랜치 비교 (base...HEAD). base를 안 주면 기본 브랜치를 찾는다.
   app.get(
     '/api/compare',

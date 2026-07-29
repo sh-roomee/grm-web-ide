@@ -24,6 +24,7 @@ grmide  ──실행──▶  bin/grmide.js
 | `bin/summary.js` | 실행 시 터미널에 찍는 요약 (변경 규모·파일 목록·주소) |
 | `server/index.js` | Express 앱. 라우팅, 토큰 인증, 경로 검증, SSE 브로드캐스트, 정적 파일 |
 | `server/git.js` | git 명령 래퍼. status/diff/stage 파싱, 기준점·확인 시점 트리 |
+| `server/blame.js` | `git blame --porcelain` 파서. 순수 함수 |
 | `server/diff.js` | unified diff 파서 + 단어 단위 diff. 순수 함수 |
 | `server/language.js` | 확장자→언어 판단, Vue SFC 블록 경계 |
 | `server/log.js` | `git log` 파싱 + 그래프 레인 계산. 순수 함수 |

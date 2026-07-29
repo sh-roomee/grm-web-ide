@@ -284,12 +284,60 @@ async function pickCompareBranch(base) {
 const ctxMenu = ref(null) // { x, y, sections }
 let ctxFile = null // 메뉴가 가리키는 파일 { path, staged? } | null
 
+/**
+ * Blame 주석 (IntelliJ의 Annotate). 줄 왼쪽에 날짜·작성자가 붙고, 올리면 커밋
+ * 정보, 누르면 그 커밋으로 간다.
+ *
+ * blame은 **지금 워킹트리 파일** 기준이다. 커밋·비교 탭의 오른쪽은 다른 시점의
+ * 내용이라 줄 번호가 어긋날 수 있어 켜지 못하게 한다.
+ */
+const blameOn = ref(false)
+const blameData = ref(null) // { path, lines, commits }
+
+const blameEligible = computed(() => {
+  const kind = tabs.active.value?.kind
+  return kind === 'file' || kind === 'worktree'
+})
+
+async function loadBlame() {
+  const tab = tabs.active.value
+  if (!blameOn.value || !tab || !blameEligible.value) return
+  if (blameData.value?.path === tab.path) return
+  try {
+    blameData.value = { path: tab.path, ...(await api.fetchBlame(tab.path)) }
+  } catch (err) {
+    blameOn.value = false
+    showToast(`blame 실패 — ${err.message}`, { ttl: 5000 })
+  }
+}
+
+function toggleBlame() {
+  blameOn.value = !blameOn.value
+  if (blameOn.value) loadBlame()
+}
+
+// 탭을 옮기면 그 파일의 blame을 받는다 (켜져 있을 때만)
+watch(() => tabs.activeId.value, loadBlame)
+
+/** 지금 탭에 보여줄 blame. 켜져 있고, 그 파일 것일 때만. */
+const activeBlame = computed(() => {
+  if (!blameOn.value || !blameEligible.value) return null
+  const tab = tabs.active.value
+  return blameData.value?.path === tab?.path ? blameData.value : null
+})
+
 function gitMenuItems() {
   return {
     key: 'git',
     label: 'Git',
     children: [
       { key: 'git:compare', label: '브랜치 비교…' },
+      {
+        key: 'git:blame',
+        label: blameOn.value ? 'Blame 주석 끄기' : 'Blame 주석',
+        hint: blameEligible.value ? '' : '워킹트리 파일만',
+        disabled: !blameEligible.value && !blameOn.value,
+      },
       { key: 'git:fetch', label: 'git fetch' },
       { key: 'git:pull', label: 'git pull', hint: 'ff-only' },
     ],
@@ -334,6 +382,7 @@ async function onMenuPick(key) {
   } else if (key === 'stage' && file) act(api.stageFile, file)
   else if (key === 'unstage' && file) act(api.unstageFile, file)
   else if (key === 'git:compare') askCompareBranch(file?.path ?? null)
+  else if (key === 'git:blame') toggleBlame()
   else if (key === 'git:fetch') runAction('fetch')
   else if (key === 'git:pull') runAction('pull')
 }
@@ -875,6 +924,11 @@ onMounted(async () => {
       // 파일이 트리에 없으면 가장 자주 찾을 것을 못 찾는다
       const jobs = [loadStatus(), loadRisks(), comments.load(), basket.load()]
       if (fileList.value.length) jobs.push(loadFiles())
+      // blame은 파일이 바뀌면 줄이 밀린다 — 비우고 지금 파일 것을 다시 받는다
+      if (blameOn.value) {
+        blameData.value = null
+        jobs.push(loadBlame())
+      }
       // 비교를 열어 뒀으면 목록도 따라온다 — AI가 커밋하면 HEAD가 움직인다
       if (compareInfo.value) {
         jobs.push(
@@ -1375,6 +1429,8 @@ function onKey(event) {
           :compare="compare"
           :comments-for="commentsForActive"
           :risks="risksFor(tabs.active.value.path) ?? []"
+          :blame="activeBlame"
+          @open-commit="openCommit($event)"
           @update:context="context = $event"
           @update:compare="compare = $event"
           @comment="addComment($event)"

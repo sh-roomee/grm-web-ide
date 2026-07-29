@@ -12,6 +12,7 @@ import {
   flatLanes,
   mergeFileStats,
 } from './log.js'
+import { parseBlamePorcelain } from './blame.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -698,6 +699,15 @@ export async function stageFile(repo, path) {
 
 export async function unstageFile(repo, path) {
   await git(repo, ['reset', '-q', 'HEAD', '--', path])
+}
+
+/**
+ * 워킹트리 파일의 줄별 blame (rev 없이 — 지금 파일 그대로).
+ * 아직 커밋되지 않은 줄은 sha가 전부 0으로 온다.
+ */
+export async function blameFile(repo, relPath) {
+  const raw = await git(repo, ['blame', '--porcelain', '--', relPath])
+  return parseBlamePorcelain(raw)
 }
 
 // --- 브랜치 비교 (base...HEAD)
