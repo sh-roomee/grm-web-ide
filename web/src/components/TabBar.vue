@@ -1,4 +1,6 @@
 <script setup>
+import FileIcon from './FileIcon.vue'
+
 defineProps({
   tabs: { type: Array, required: true },
   activeId: { type: String, default: null },
@@ -34,7 +36,10 @@ const dirName = (path) => {
         @dblclick="emit('pin', tab.id)"
         @mousedown.middle.prevent="emit('close', tab.id)"
       >
-        <span class="kind" :class="KIND[tab.kind].cls" :title="KIND[tab.kind].title">
+        <!-- 파일 탭의 'F'는 정보가 없었다. 파일 종류 아이콘이 그 자리를 대신한다.
+             워킹트리 M·커밋 C는 "무엇을 보고 있나"라는 뜻이 있어 남긴다 -->
+        <FileIcon v-if="tab.kind === 'file'" :path="tab.path" :title="KIND.file.title" />
+        <span v-else class="kind" :class="KIND[tab.kind].cls" :title="KIND[tab.kind].title">
           {{ KIND[tab.kind].char }}
         </span>
         <span class="name">{{ fileName(tab.path) }}</span>

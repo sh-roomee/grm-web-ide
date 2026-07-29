@@ -1,6 +1,8 @@
 <script setup>
 import { computed, ref } from 'vue'
 
+import FileIcon from './FileIcon.vue'
+
 /**
  * 디렉토리 트리 — 검색이 "아는 파일로 가는 길"이라면 트리는 "모르는 파일을
  * 발견하는 길"이다. 코드를 읽다 보면 어쩔 수 없이 다른 파일을 따라가게 되고,
@@ -88,6 +90,7 @@ const rows = computed(() => {
       >
         <span v-if="row.dir" class="chev" :class="{ down: row.opened }">›</span>
         <span v-else class="chev-pad" />
+        <FileIcon :folder="row.dir" :path="row.path" />
         <span class="t-name" :class="{ dir: row.dir }">{{ row.name }}</span>
       </button>
     </div>

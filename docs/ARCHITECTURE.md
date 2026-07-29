@@ -38,6 +38,8 @@ grmide  ──실행──▶  bin/grmide.js
 | `web/src/App.vue` | 상태 소유. 상태 로딩, 파일 선택, 키보드 |
 | `web/src/components/ChangeList.vue` | 파일 목록. 워킹트리용과 커밋용(`readonly`)을 겸한다 |
 | `web/src/components/FileTree.vue` | 디렉토리 트리 (사이드바, 접이식). `git ls-files` 기반 |
+| `web/src/icons/index.js` | 파일 아이콘 레지스트리 (종류 → 약어·색). 순수 함수 |
+| `web/src/components/FileIcon.vue` | 파일 아이콘 배지. 트리·목록·탭·검색이 모두 이것을 쓴다 |
 | `web/src/components/CommitList.vue` | 커밋 목록 + 그래프 SVG + 검색 바 |
 | `web/src/components/RefPicker.vue` | 브랜치·태그 선택기 (이름 검색 포함) |
 | `web/src/components/SearchEverywhere.vue` | 통합 검색 (Shift 두 번 · ⌘P · ⌘⇧F) |

@@ -1,6 +1,8 @@
 <script setup>
 import { computed } from 'vue'
 
+import FileIcon from './FileIcon.vue'
+
 const props = defineProps({
   groups: { type: Array, required: true }, // [{ key, title, files }]
   selected: { type: Object, default: null },
@@ -99,6 +101,7 @@ const totalCount = computed(() => props.groups.reduce((n, g) => n + g.files.leng
               "
               >⚠</span
             >
+            <FileIcon :path="file.path" />
             <span class="name">{{ fileName(file.path) }}</span>
             <span class="dir">{{ dirName(file.path) }}</span>
             <span class="stat">

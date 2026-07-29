@@ -1,6 +1,8 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
 
+import FileIcon from './FileIcon.vue'
+
 import * as api from '../api.js'
 import { fuzzyScore } from '../lib/fuzzy.js'
 
@@ -261,9 +263,9 @@ const isSelected = (row) => pickable.value[cursor.value]?.key === row.key
             @click="choose(row)"
             @mousemove="cursor = pickable.findIndex((p) => p.key === row.key)"
           >
-            <!-- 파일 -->
+            <!-- 파일 — 종류 아이콘이 곧 "파일 결과"라는 표시다 -->
             <template v-if="row.kind === 'file'">
-              <span class="icon file">F</span>
+              <FileIcon :path="row.hit.path" />
               <span class="main mono"
                 ><span
                   v-for="(part, i) in row.hit.parts"

@@ -67,6 +67,24 @@
   --diff-del-line: #ff453a;
 
   /**
+   * 파일 아이콘 — iOS 시스템 컬러(dark).
+   * 어떤 파일이 어떤 색인지는 web/src/icons/index.js 레지스트리가 정한다.
+   */
+  --icon-yellow: #ffd60a;
+  --icon-orange: #ff9f0a;
+  --icon-red: #ff453a;
+  --icon-pink: #ff375f;
+  --icon-purple: #bf5af2;
+  --icon-indigo: #7d7aff; /* systemIndigo를 어두운 바닥에서 읽히게 한 단계 올림 */
+  --icon-blue: #0a84ff;
+  --icon-teal: #64d2ff;
+  --icon-mint: #63e6e2;
+  --icon-green: #30d158;
+  --icon-brown: #ac8e68;
+  --icon-gray: #98989d;
+  --icon-folder: rgba(100, 178, 255, 0.72); /* 파인더 폴더의 파랑, 사이드바용으로 낮춤 */
+
+  /**
    * 문법 강조 — Xcode 다크 팔레트.
    * 이 도구가 사는 세계의 색이라 다른 팔레트를 만들 이유가 없다.
    */
