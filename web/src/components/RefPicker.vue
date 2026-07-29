@@ -4,6 +4,9 @@ import { computed, nextTick, ref, watch } from 'vue'
 const props = defineProps({
   refs: { type: Array, default: () => [] },
   selected: { type: String, default: null }, // null = 전체 브랜치
+  // 패널을 트리거의 어느 모서리에 붙일지. 화면 오른쪽에서 열면 'right'(기본),
+  // 왼쪽 사이드바에서 열면 'left' — 아니면 화면 밖으로 나간다.
+  align: { type: String, default: 'right' },
 })
 
 const emit = defineEmits(['select'])
@@ -67,7 +70,7 @@ function onEnter() {
     <!-- 바깥을 누르면 닫힌다 -->
     <div v-if="open" class="backdrop" @click="open = false" />
 
-    <div v-if="open" class="panel">
+    <div v-if="open" class="panel" :class="{ 'align-left': align === 'left' }">
       <input
         ref="input"
         v-model="filter"
@@ -156,6 +159,10 @@ function onEnter() {
   box-shadow: var(--shadow-pop);
   overflow: hidden;
   animation: pop 160ms var(--ease);
+}
+.panel.align-left {
+  right: auto;
+  left: 0;
 }
 @keyframes pop {
   from {

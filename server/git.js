@@ -24,7 +24,9 @@ const MAX_BUFFER = 64 * 1024 * 1024
  */
 export async function git(cwd, args, { allowFail = false, env = null } = {}) {
   try {
-    const { stdout } = await execFileAsync('git', args, {
+    // quotepath를 끈다. 켜져 있으면(기본) 한글 경로가 "\355\214\214…" 8진수로
+    // 이스케이프되어 numstat·name-status 파싱 결과가 전부 깨진 이름이 된다.
+    const { stdout } = await execFileAsync('git', ['-c', 'core.quotepath=false', ...args], {
       cwd,
       maxBuffer: MAX_BUFFER,
       windowsHide: true,

@@ -218,11 +218,14 @@ const commitGroups = computed(() => [
 const compareInfo = ref(null) // { base, mergeBase, head, ahead, behind, files }
 const compareFile = ref(null)
 const compareRefs = ref([]) // 기준 선택기(RefPicker)에 줄 목록
+const compareFilter = ref('') // 파일 이름 거르기 — 브랜치 하나가 파일 천 개를 바꾸기도 한다
+const compareFilterEl = ref(null)
 
 async function startCompare(base = compareInfo.value?.base ?? null) {
   try {
     const info = await api.fetchCompare(base)
     compareInfo.value = info
+    compareFilter.value = ''
     view.value = 'compare'
     compareFile.value = info.files[0] ?? null
   } catch (err) {
@@ -308,9 +311,13 @@ async function onMenuPick(key) {
   else if (key === 'git:pull') runAction('pull')
 }
 
-const compareGroups = computed(() => [
-  { key: 'compare', title: '', files: compareInfo.value?.files ?? [] },
-])
+const compareGroups = computed(() => {
+  const files = compareInfo.value?.files ?? []
+  const q = compareFilter.value.trim().toLowerCase()
+  return [
+    { key: 'compare', title: '', files: q ? files.filter((f) => f.path.toLowerCase().includes(q)) : files },
+  ]
+})
 
 /** 비교에서 파일을 고르면 비교 탭이 열린다 (커밋 화면과 같은 규칙). */
 watch(compareFile, (file) => {
@@ -488,6 +495,21 @@ function fileAsDiff(doc) {
  * 몇 개 거치면 탭이 쌓인다.
  */
 function openFile({ path, line = null, hash = null }, { pin = true } = {}) {
+  // 비교 화면에서는 비교에 포함된 파일이면 **비교 탭**으로 연다 — ⌘P·검색으로
+  // 찾아 열어도 지금 보던 "비교 상태"가 유지된다. 비교 밖 파일이면 여느 때처럼
+  // 읽기 전용이다.
+  if (view.value === 'compare' && compareInfo.value) {
+    const file = compareInfo.value.files.find((f) => f.path === path)
+    if (file) {
+      tabs.open(
+        { kind: 'compare', path, base: compareInfo.value.base, line, sub: `↔ ${compareInfo.value.base}` },
+        { pin },
+      )
+      compareFile.value = file // 목록 선택도 따라온다
+      loadActive()
+      return
+    }
+  }
   tabs.open({ kind: 'file', path, line, hash, sub: '읽기 전용' }, { pin })
   // 이미 그 탭을 보고 있었다면 activeId가 그대로여서 watch가 돌지 않는다.
   // 그러면 줄 이동이 조용히 사라진다(⌘⇧F 결과를 연달아 누르는 경우).
@@ -907,8 +929,22 @@ function onKey(event) {
   if (meta && event.key.toLowerCase() === 'f') {
     event.preventDefault()
     const seed = selectedText()
-    if (event.shiftKey) openPalette('text', seed)
-    else diffViewer.value?.openFind(seed)
+    if (event.shiftKey) {
+      openPalette('text', seed)
+      return
+    }
+    // 비교 화면에서 목록 쪽(사이드바)에 포커스가 있으면 ⌘F는 "파일 이름 거르기"다.
+    // 파일 천 개가 바뀐 브랜치에서 스크롤로 찾을 수는 없다. diff 쪽을 보고 있으면
+    // 여느 때처럼 파일 안에서 찾는다.
+    const inCompareList =
+      view.value === 'compare' &&
+      document.activeElement instanceof Element &&
+      document.activeElement.closest('.compare-side')
+    if (inCompareList) {
+      if (seed) compareFilter.value = seed
+      compareFilterEl.value?.focus()
+      compareFilterEl.value?.select()
+    } else diffViewer.value?.openFind(seed)
     return
   }
   if (meta && event.key.toLowerCase() === 'p') {
@@ -1192,6 +1228,7 @@ function onKey(event) {
             <RefPicker
               :refs="compareRefs"
               :selected="compareInfo?.base ?? null"
+              align="left"
               @select="startCompare($event)"
             />
             <span class="spacer" />
@@ -1203,6 +1240,14 @@ function onKey(event) {
               · 기준이 {{ compareInfo.behind }}개 앞서 있음
             </template>
           </p>
+          <input
+            ref="compareFilterEl"
+            v-model="compareFilter"
+            class="cmp-filter"
+            type="text"
+            placeholder="파일 이름으로 거르기 (⌘F)"
+            @keydown.esc.prevent="((compareFilter = ''), $event.target.blur())"
+          />
           <ChangeList
             class="cmp-files"
             :groups="compareGroups"
@@ -1747,6 +1792,23 @@ function onKey(event) {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   flex: none;
+}
+.cmp-filter {
+  flex: none;
+  margin: 8px 16px 0;
+  padding: 5px 10px;
+  border-radius: var(--r-sm);
+  background: var(--bg-elevated);
+  color: var(--fg);
+  font-size: 12px;
+  border: none;
+  outline: none;
+}
+.cmp-filter:focus {
+  box-shadow: 0 0 0 1.5px var(--accent);
+}
+.cmp-filter::placeholder {
+  color: var(--fg-faint);
 }
 .cmp-files {
   flex: 1;
