@@ -20,7 +20,12 @@ const props = defineProps({
   open: { type: Boolean, default: false },
   tab: { type: String, default: 'all' },
   seed: { type: String, default: '' }, // 열 때 미리 채울 검색어 (드래그 선택)
+  clear: { type: Boolean, default: false }, // 열 때 검색어를 비운다 (⌘E)
   files: { type: Array, default: () => [] },
+  // 최근 본 파일 경로 (최근 순). 검색어가 비었을 때 이 순서로 보여 준다
+  recent: { type: Array, default: () => [] },
+  // 이름으로 실행할 수 있는 화면 기능 [{ key, label, desc, words }]. App이 정한다
+  actions: { type: Array, default: () => [] },
 })
 
 const emit = defineEmits(['close', 'open-file', 'open-commit', 'update:tab', 'add-context', 'action'])
@@ -49,38 +54,35 @@ const loading = ref(false)
 const trimmed = computed(() => term.value.trim())
 
 /**
- * 액션 — 화면 기능을 이름으로 실행한다 (IntelliJ의 액션 검색 자리).
- * 원격 조작은 이 둘이 전부다: fetch와 fast-forward pull.
- * push·rebase·reset은 넣지 않는다 (CLAUDE.md 범위 규칙).
+ * 액션 — 화면 기능을 이름으로 실행한다 (IntelliJ의 Actions 탭 자리).
+ * 목록은 App이 준다 — 무엇을 할 수 있는지는 지금 화면 상태가 정하기 때문이다.
  */
-const ACTIONS = [
-  {
-    key: 'fetch',
-    label: 'git fetch',
-    desc: '원격의 새 커밋을 가져온다 (브랜치 목록도 정리)',
-    words: ['fetch', 'git fetch', '페치', '가져오기'],
-  },
-  {
-    key: 'pull',
-    label: 'git pull',
-    desc: 'fast-forward만 — 갈라져 있으면 터미널로',
-    words: ['pull', 'git pull', '풀', '당겨오기', '받아오기'],
-  },
-]
-
 const actionHits = computed(() => {
   const q = trimmed.value.toLowerCase()
   if (!q) return []
-  return ACTIONS.filter((a) => a.words.some((w) => w.includes(q)))
+  return props.actions.filter(
+    (a) => a.label.toLowerCase().includes(q) || a.words.some((w) => w.includes(q)),
+  )
 })
 
 // --- 파일: 받아둔 목록에서 바로 걸러낸다 (요청 없음)
 const fileHits = computed(() => {
   const needle = trimmed.value.toLowerCase().replace(/\s+/g, '')
+  /**
+   * 검색어가 없으면 **최근 본 파일**을 먼저 놓는다 (⌘E).
+   *
+   * 전에는 `git ls-files` 순서 앞 60개였는데 그건 아무 뜻이 없는 목록이라, 사실상
+   * 검색어를 치기 전까지 빈 화면이었다. 방금 보던 것들이 거기 있으면 오가는 일이
+   * 검색 없이 끝난다. 최근 목록에는 지워진 파일이 남을 수 있어 지금 목록에 있는
+   * 것만 남긴다.
+   */
   if (!needle) {
-    return props.files
+    const known = new Set(props.files)
+    const recent = props.recent.filter((p) => known.has(p))
+    const rest = props.files.filter((p) => !recent.includes(p))
+    return [...recent, ...rest]
       .slice(0, LIST_LIMIT)
-      .map((path) => ({ path, marks: [], parts: [{ text: path, on: false }] }))
+      .map((path) => ({ path, marks: [], parts: [{ text: path, on: false }], recent: recent.includes(path) }))
   }
   const out = []
   for (const path of props.files) {
@@ -155,13 +157,20 @@ const rows = computed(() => {
   const actionRows = () =>
     actionHits.value.map((a) => ({ kind: 'action', key: `a:${a.key}`, action: a }))
 
-  if (props.tab === 'file') push(fileRows(LIST_LIMIT))
-  else if (props.tab === 'commit') push(commitRows(LIST_LIMIT))
+  // 검색어가 없으면 파일 목록이 곧 "최근 본 것"이다 — 제목으로 그렇다고 말해 준다
+  const fileLabel = trimmed.value ? '파일' : '최근 본 파일'
+
+  if (props.tab === 'file') {
+    if (!trimmed.value && props.recent.length) {
+      out.push({ kind: 'label', key: 'l:recent', label: fileLabel })
+    }
+    push(fileRows(LIST_LIMIT))
+  } else if (props.tab === 'commit') push(commitRows(LIST_LIMIT))
   else if (props.tab === 'text') push(textRows(LIST_LIMIT))
   else {
     const groups = [
       { label: '액션', items: actionRows() },
-      { label: '파일', items: fileRows(PREVIEW_LIMIT.file) },
+      { label: fileLabel, items: fileRows(PREVIEW_LIMIT.file) },
       { label: '커밋', items: commitRows(PREVIEW_LIMIT.commit) },
       { label: '텍스트', items: textRows(PREVIEW_LIMIT.text) },
     ]
@@ -221,6 +230,7 @@ watch(
   async (isOpen) => {
     if (!isOpen) return
     if (props.seed) term.value = props.seed
+    else if (props.clear) term.value = '' // ⌘E — 최근 목록을 보려고 연 것이다
     cursor.value = 0
     await nextTick()
     input.value?.select()
@@ -272,8 +282,8 @@ const isSelected = (row) => pickable.value[cursor.value]?.key === row.key
             : tab === 'commit'
               ? '커밋 메시지 찾기'
               : tab === 'file'
-                ? '파일 경로 일부를 입력하세요'
-                : '파일 · 커밋 · 텍스트를 한 번에'
+                ? '파일 경로 일부 — 비워 두면 최근 본 파일'
+                : '파일 · 커밋 · 텍스트 · 액션을 한 번에'
         "
         @keydown.down.prevent="move(1)"
         @keydown.up.prevent="move(-1)"
@@ -334,7 +344,8 @@ const isSelected = (row) => pickable.value[cursor.value]?.key === row.key
 
         <p v-if="!rows.length && trimmed && !loading" class="none">결과가 없습니다.</p>
         <p v-else-if="!rows.length && !trimmed" class="none">
-          찾을 내용을 입력하세요. 파일 이름 일부, 커밋 메시지, 코드 어느 쪽이든 됩니다.
+          찾을 내용을 입력하세요. 파일 이름 일부, 커밋 메시지, 코드, 화면 기능 이름
+          어느 쪽이든 됩니다.
         </p>
         <p v-if="textTruncated && (tab === 'text' || tab === 'all')" class="cut">
           텍스트 결과가 너무 많아 일부만 보여줍니다. 검색어를 좁혀 주세요.

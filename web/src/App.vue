@@ -326,22 +326,136 @@ const activeBlame = computed(() => {
   return blameData.value?.path === tab?.path ? blameData.value : null
 })
 
+/**
+ * 액션 레지스트리 — 화면 기능을 이름으로 실행한다.
+ *
+ * 통합 검색(Shift 두 번)의 '액션' 결과와 우클릭 `Git ▸` 메뉴가 **같은 목록**을
+ * 쓴다. 이름과 동작이 두 곳에 흩어져 있으면 하나만 고치고 다른 하나가 남는다.
+ *
+ * `when`이 false면 지금 상태에서 뜻이 없는 것이라 목록에서 빠진다 — 예를 들어
+ * 담은 것이 없는데 '컨텍스트 바구니'를 실행할 수는 없다. 이렇게 하면 검색 결과가
+ * "지금 할 수 있는 것"만 보여 준다.
+ */
+const ACTIONS = computed(() => [
+  {
+    key: 'git:compare',
+    group: 'git',
+    label: '브랜치 비교…',
+    desc: '다른 브랜치와 merge-base 기준으로 비교',
+    words: ['compare', 'branch', '브랜치', '비교'],
+  },
+  {
+    key: 'git:blame',
+    group: 'git',
+    label: blameOn.value ? 'Blame 주석 끄기' : 'Blame 주석',
+    desc: blameEligible.value ? '줄마다 누가 언제 바꿨나' : '워킹트리 파일에서만',
+    words: ['blame', 'annotate', '블레임', '주석', '어노테이트'],
+    when: blameEligible.value || blameOn.value,
+  },
+  {
+    key: 'git:fetch',
+    group: 'git',
+    label: 'git fetch',
+    desc: '원격의 새 커밋을 가져온다',
+    words: ['fetch', 'git fetch', '페치', '가져오기'],
+  },
+  {
+    key: 'git:pull',
+    group: 'git',
+    label: 'git pull',
+    desc: 'fast-forward만 — 갈라져 있으면 터미널로',
+    words: ['pull', 'git pull', '풀', '당겨오기', '받아오기'],
+  },
+  {
+    key: 'review:all',
+    label: '전체 확인',
+    desc: '모두 확인 처리하고 기준점을 새로 잡는다',
+    words: ['확인', '전체 확인', 'review', 'baseline', '기준점'],
+    when: progress.value.total > 0,
+  },
+  {
+    key: 'baseline:drop',
+    label: '기준점 해제',
+    desc: '기준점을 지운다 (HEAD 대비로 돌아간다)',
+    words: ['기준점', 'baseline', '해제', 'drop'],
+    when: Boolean(baseline.value),
+  },
+  {
+    key: 'summary',
+    label: '사이클 요약',
+    desc: '기준점 이후 무엇이 바뀌고 무엇이 남았나',
+    words: ['요약', 'summary', '사이클', 'cycle'],
+    when: progress.value.total > 0,
+  },
+  {
+    key: 'review:sheet',
+    label: '리뷰 스레드',
+    desc: '코멘트를 모아 보고 골라 프롬프트로 넘긴다',
+    words: ['리뷰', 'review', '코멘트', 'comment', '프롬프트', 'prompt'],
+    when: comments.comments.value.length > 0,
+  },
+  {
+    key: 'context:sheet',
+    label: '컨텍스트 바구니',
+    desc: '담아 둔 파일·구간·검색을 프롬프트로 넘긴다',
+    words: ['컨텍스트', 'context', '바구니', '담기'],
+    when: basket.count.value > 0,
+  },
+  {
+    key: 'view:toggle',
+    label: view.value === 'changes' ? '히스토리 보기' : '변경사항 보기',
+    desc: 'Tab 키로도 전환한다',
+    words: ['히스토리', 'history', '변경사항', 'changes', '전환'],
+  },
+  {
+    key: 'tree:toggle',
+    label: treeOpen.value ? '파일 트리 접기' : '파일 트리 펼치기',
+    desc: '사이드바의 디렉토리 트리',
+    words: ['트리', 'tree', '파일', '사이드바'],
+  },
+  {
+    key: 'font:reset',
+    label: '코드 글자 크기 기본값',
+    desc: '⌘0 과 같다',
+    words: ['글자', 'font', '크기', 'size', '기본값', 'reset'],
+    when: !codeFont.isDefault.value,
+  },
+])
+
+const availableActions = computed(() => ACTIONS.value.filter((a) => a.when !== false))
+
 function gitMenuItems() {
   return {
     key: 'git',
     label: 'Git',
-    children: [
-      { key: 'git:compare', label: '브랜치 비교…' },
-      {
-        key: 'git:blame',
-        label: blameOn.value ? 'Blame 주석 끄기' : 'Blame 주석',
-        hint: blameEligible.value ? '' : '워킹트리 파일만',
-        disabled: !blameEligible.value && !blameOn.value,
-      },
-      { key: 'git:fetch', label: 'git fetch' },
-      { key: 'git:pull', label: 'git pull', hint: 'ff-only' },
-    ],
+    children: ACTIONS.value
+      .filter((a) => a.group === 'git')
+      .map((a) => ({
+        key: a.key,
+        label: a.label,
+        hint: a.key === 'git:pull' ? 'ff-only' : '',
+        disabled: a.when === false,
+      })),
   }
+}
+
+/**
+ * 액션 하나를 실행한다. 팔레트와 우클릭 메뉴가 함께 쓴다.
+ * `path`는 그 액션이 가리키는 파일 — 우클릭은 누른 파일, 팔레트는 보고 있는 탭이다.
+ */
+function runActionKey(key, path = null) {
+  if (key === 'git:compare') askCompareBranch(path)
+  else if (key === 'git:blame') toggleBlame()
+  else if (key === 'git:fetch') runAction('fetch')
+  else if (key === 'git:pull') runAction('pull')
+  else if (key === 'review:all') markReviewed()
+  else if (key === 'baseline:drop') dropBaseline()
+  else if (key === 'summary') openSummary()
+  else if (key === 'review:sheet') reviewOpen.value = true
+  else if (key === 'context:sheet') contextOpen.value = true
+  else if (key === 'view:toggle') view.value = view.value === 'changes' ? 'history' : 'changes'
+  else if (key === 'tree:toggle') treeOpen.value = !treeOpen.value
+  else if (key === 'font:reset') codeFont.reset()
 }
 
 function openFileMenu(event, file = null, { stageable = false } = {}) {
@@ -381,10 +495,7 @@ async function onMenuPick(key) {
     if (await copyToClipboard(file.path)) showToast(`경로 복사됨 — ${file.path}`, { ttl: 2500 })
   } else if (key === 'stage' && file) act(api.stageFile, file)
   else if (key === 'unstage' && file) act(api.unstageFile, file)
-  else if (key === 'git:compare') askCompareBranch(file?.path ?? null)
-  else if (key === 'git:blame') toggleBlame()
-  else if (key === 'git:fetch') runAction('fetch')
-  else if (key === 'git:pull') runAction('pull')
+  else runActionKey(key, file?.path ?? null) // Git ▸ 하위 — 팔레트와 같은 목록을 쓴다
 }
 
 const compareGroups = computed(() => {
@@ -411,11 +522,31 @@ function pinCompareFile(file) {
   tabs.pin(tabId({ kind: 'compare', path: file.path, base: compareInfo.value.base }))
 }
 
-// --- 통합 검색 (Shift 두 번 / ⌘P / ⌘⇧F)
+// --- 통합 검색 (Shift 두 번 / ⌘P / ⌘⇧F / ⌘E)
 const paletteOpen = ref(false)
 const paletteTab = ref('all')
 const paletteSeed = ref('') // 열 때 미리 채울 검색어 (드래그 선택)
+const paletteClear = ref(false) // 열 때 검색어를 비운다 (⌘E — 최근 목록을 보려고)
 const fileList = ref([])
+
+/**
+ * 최근에 본 파일. 검색어가 비었을 때 팔레트가 이 순서로 보여 준다(⌘E).
+ *
+ * 지금까지 빈 검색어에는 `git ls-files` 순서대로 앞 60개가 나왔는데, 그건 아무
+ * 뜻이 없는 목록이라 사실상 "검색어를 치기 전 빈 화면"이었다. 방금 보던 파일들이
+ * 거기 있으면 오가는 일이 검색 없이 끝난다.
+ *
+ * 탭을 옮길 때 기록한다 — 실제로 **본** 것만 남기려는 것이다(열기만 하고 지나간
+ * 것과 구분되지 않지만, 탭을 여는 것이 곧 보는 것이다).
+ */
+const recentPaths = ref([])
+watch(
+  () => tabs.active.value?.path,
+  (path) => {
+    if (!path) return
+    recentPaths.value = [path, ...recentPaths.value.filter((p) => p !== path)].slice(0, 30)
+  },
+)
 
 async function loadFiles() {
   try {
@@ -425,9 +556,10 @@ async function loadFiles() {
   }
 }
 
-async function openPalette(tab = 'all', seed = '') {
+async function openPalette(tab = 'all', seed = '', { clear = false } = {}) {
   paletteTab.value = tab
   paletteSeed.value = seed
+  paletteClear.value = clear
   paletteOpen.value = true
   if (!fileList.value.length) await loadFiles()
 }
@@ -1038,6 +1170,18 @@ function onKey(event) {
     openPalette('file')
     return
   }
+  /**
+   * ⌘E — 최근 본 파일. 같은 파일 창을 열지만 **검색어를 비우고** 연다.
+   *
+   * ⌘P는 이전 검색어를 남긴다(같은 것을 다시 찾는 일이 잦다). 최근 목록은 그
+   * 검색어가 남아 있으면 볼 수가 없으므로, 이 키만 비우고 시작한다 — 두 키의
+   * 차이가 그것이다.
+   */
+  if (meta && event.key.toLowerCase() === 'e') {
+    event.preventDefault()
+    openPalette('file', '', { clear: true })
+    return
+  }
 
   /**
    * ⌘+/⌘-/⌘0 으로 코드 글자 크기. 브라우저 확대를 대신 가로챈다 — 브라우저 확대는
@@ -1472,13 +1616,16 @@ function onKey(event) {
       :open="paletteOpen"
       :tab="paletteTab"
       :seed="paletteSeed"
+      :clear="paletteClear"
       :files="fileList"
+      :recent="recentPaths"
+      :actions="availableActions"
       @update:tab="paletteTab = $event"
       @close="paletteOpen = false"
       @open-file="openFile($event)"
       @open-commit="openCommit($event)"
       @add-context="stash($event)"
-      @action="runAction($event)"
+      @action="runActionKey($event, tabs.active.value?.path ?? null)"
     />
 
     <SummarySheet
