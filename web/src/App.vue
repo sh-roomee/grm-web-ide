@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import ChangeList from './components/ChangeList.vue'
 import CommitList from './components/CommitList.vue'
+import FileTree from './components/FileTree.vue'
 import DiffViewer from './components/DiffViewer.vue'
 import SearchEverywhere from './components/SearchEverywhere.vue'
 import ReviewSheet from './components/ReviewSheet.vue'
@@ -211,18 +212,28 @@ const paletteTab = ref('all')
 const paletteSeed = ref('') // 열 때 미리 채울 검색어 (드래그 선택)
 const fileList = ref([])
 
+async function loadFiles() {
+  try {
+    fileList.value = (await api.fetchFiles()).files
+  } catch (err) {
+    diffError.value = err.message
+  }
+}
+
 async function openPalette(tab = 'all', seed = '') {
   paletteTab.value = tab
   paletteSeed.value = seed
   paletteOpen.value = true
-  if (!fileList.value.length) {
-    try {
-      fileList.value = (await api.fetchFiles()).files
-    } catch (err) {
-      diffError.value = err.message
-    }
-  }
+  if (!fileList.value.length) await loadFiles()
 }
+
+// --- 디렉토리 트리 (사이드바). 펼침 여부만 기억한다
+const TREE_KEY = 'grmide:tree-open'
+const treeOpen = ref(localStorage.getItem(TREE_KEY) === '1')
+watch(treeOpen, (open) => {
+  localStorage.setItem(TREE_KEY, open ? '1' : '0')
+  if (open && !fileList.value.length) loadFiles()
+})
 
 /**
  * 파일 내용을 DiffViewer가 이해하는 모양으로 바꾼다.
@@ -597,13 +608,18 @@ onMounted(async () => {
   await loadActive()
   await comments.load()
   await basket.load()
+  if (treeOpen.value) loadFiles()
 
   // 파일이 바뀌면 서버가 알려준다. 폴링이 아니라 이 스트림이 갱신의 기준이다.
   stream = api.subscribeChanges({
     onChange: async () => {
       live.value = true
       tabs.markStale()
-      await Promise.all([loadStatus(), loadRisks(), comments.load(), basket.load()])
+      // 트리·팔레트가 이미 목록을 들고 있으면 같이 갱신한다 — AI가 방금 만든
+      // 파일이 트리에 없으면 가장 자주 찾을 것을 못 찾는다
+      const jobs = [loadStatus(), loadRisks(), comments.load(), basket.load()]
+      if (fileList.value.length) jobs.push(loadFiles())
+      await Promise.all(jobs)
       await loadActive()
       setTimeout(() => (live.value = false), 600)
     },
@@ -906,23 +922,31 @@ function onKey(event) {
 
     <main class="body">
       <aside class="side">
-        <!-- 변경사항 탭: 파일 목록 하나 -->
-        <ChangeList
-          v-if="view === 'changes'"
-          :groups="groups"
-          :selected="selected"
-          title="변경사항"
-          count-label="개"
-          :is-reviewed="review.isReviewed"
-          :is-fresh="isFresh"
-          :risks-for="risksFor"
-          @select="selected = $event"
-          @pin="pinWorktree($event)"
-          @toggle-review="review.toggle($event)"
-          @review-all="review.markAll($event.files, true)"
-          @stage="act(api.stageFile, $event)"
-          @unstage="act(api.unstageFile, $event)"
-        />
+        <!-- 변경사항 탭: 위에 디렉토리 트리(접이식), 아래 변경 목록 -->
+        <div v-if="view === 'changes'" class="changes-side">
+          <FileTree
+            v-model:open="treeOpen"
+            :files="fileList"
+            :active-path="tabs.active.value?.path ?? null"
+            @select="openFile({ path: $event }, { pin: false })"
+            @pin="openFile({ path: $event })"
+          />
+          <ChangeList
+            :groups="groups"
+            :selected="selected"
+            title="변경사항"
+            count-label="개"
+            :is-reviewed="review.isReviewed"
+            :is-fresh="isFresh"
+            :risks-for="risksFor"
+            @select="selected = $event"
+            @pin="pinWorktree($event)"
+            @toggle-review="review.toggle($event)"
+            @review-all="review.markAll($event.files, true)"
+            @stage="act(api.stageFile, $event)"
+            @unstage="act(api.unstageFile, $event)"
+          />
+        </div>
 
         <!-- 히스토리 탭: 위에 커밋 목록, 아래에 그 커밋의 파일 목록 -->
         <div v-else class="history-side">
@@ -1335,6 +1359,18 @@ function onKey(event) {
   resize: horizontal;
   overflow: hidden;
   border-right: 0.5px solid var(--border);
+}
+
+/* 변경사항 탭: 트리(접이식)와 변경 목록이 세로로 나눈다 */
+.changes-side {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.changes-side > :last-child {
+  flex: 1;
+  min-height: 0;
 }
 
 /* 히스토리 탭에서만 좌측을 위아래로 나눈다 */
