@@ -290,7 +290,8 @@ const findTerm = ref('')
 const findCursor = ref(0) // 현재 몇 번째 매치
 const findInput = ref(null)
 
-async function openFind() {
+async function openFind(seed = '') {
+  if (seed) findTerm.value = seed
   findOpen.value = true
   await nextTick()
   findInput.value?.select()

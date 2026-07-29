@@ -208,10 +208,12 @@ const commitGroups = computed(() => [
 // --- 통합 검색 (Shift 두 번 / ⌘P / ⌘⇧F)
 const paletteOpen = ref(false)
 const paletteTab = ref('all')
+const paletteSeed = ref('') // 열 때 미리 채울 검색어 (드래그 선택)
 const fileList = ref([])
 
-async function openPalette(tab = 'all') {
+async function openPalette(tab = 'all', seed = '') {
   paletteTab.value = tab
+  paletteSeed.value = seed
   paletteOpen.value = true
   if (!fileList.value.length) {
     try {
@@ -634,6 +636,12 @@ async function reconnect() {
 const SHIFT_DOUBLE_TAP_MS = 400
 let lastShiftAt = 0
 
+/** 드래그로 선택한 텍스트. 여러 줄이면 검색어로 쓰기 어려워 무시한다. */
+function selectedText() {
+  const text = window.getSelection()?.toString().trim() ?? ''
+  return text && !text.includes('\n') ? text : ''
+}
+
 function onKey(event) {
   const meta = event.metaKey || event.ctrlKey
 
@@ -663,10 +671,12 @@ function onKey(event) {
   if (event.key !== 'Shift') lastShiftAt = 0 // 사이에 다른 키가 끼면 무효
 
   // ⌘/Ctrl 조합은 입력창 안에서도 받는다. 브라우저 기본 동작을 대신한다.
+  // 드래그로 선택해 둔 텍스트가 있으면 그것을 검색어로 미리 채운다.
   if (meta && event.key.toLowerCase() === 'f') {
     event.preventDefault()
-    if (event.shiftKey) openPalette('text')
-    else diffViewer.value?.openFind()
+    const seed = selectedText()
+    if (event.shiftKey) openPalette('text', seed)
+    else diffViewer.value?.openFind(seed)
     return
   }
   if (meta && event.key.toLowerCase() === 'p') {
@@ -1034,6 +1044,7 @@ function onKey(event) {
     <SearchEverywhere
       :open="paletteOpen"
       :tab="paletteTab"
+      :seed="paletteSeed"
       :files="fileList"
       @update:tab="paletteTab = $event"
       @close="paletteOpen = false"

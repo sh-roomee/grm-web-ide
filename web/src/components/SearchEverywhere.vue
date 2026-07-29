@@ -17,6 +17,7 @@ import { fuzzyScore } from '../lib/fuzzy.js'
 const props = defineProps({
   open: { type: Boolean, default: false },
   tab: { type: String, default: 'all' },
+  seed: { type: String, default: '' }, // 열 때 미리 채울 검색어 (드래그 선택)
   files: { type: Array, default: () => [] },
 })
 
@@ -186,9 +187,11 @@ watch(
   () => props.open,
   async (isOpen) => {
     if (!isOpen) return
+    if (props.seed) term.value = props.seed
     cursor.value = 0
     await nextTick()
     input.value?.select()
+    if (debounce) clearTimeout(debounce) // term 변경 watcher가 예약한 중복 검색 취소
     if (trimmed.value) search()
   },
 )
