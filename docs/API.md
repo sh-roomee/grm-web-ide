@@ -668,6 +668,30 @@ svg도 이 경로로 나가지만 화면은 `<img>`로만 그린다 — 문서�
 
 응답 `{ "ok": true }`. `stage`는 `git add`, `unstage`는 `git reset HEAD --`.
 
+## GET /api/compare
+
+브랜치 비교 요약. `?base=<ref>`를 주면 그 브랜치와, 없으면 기본 브랜치
+(원격 `origin/HEAD` → `main` → `master`)와 비교한다.
+
+```json
+{
+  "base": "main",
+  "mergeBase": "3a909f9…",
+  "head": "7e8ed23…",
+  "ahead": 2,
+  "behind": 1,
+  "files": [{ "path": "src/lib/noiseCancel.js", "additions": 4, "deletions": 1, "status": "modified" }]
+}
+```
+
+**merge-base 기준(세 점)이다.** 두 점 비교는 base가 그동안 전진한 것까지 이
+브랜치의 변경처럼 보여줘서 PR 리뷰 관점에서 거짓이 된다. `ahead`는 이 브랜치의
+커밋 수, `behind`는 base에만 있는 커밋 수(참고용). 기준 브랜치가 없거나 공통
+조상이 없으면 400.
+
+파일 하나의 diff는 `GET /api/diff?path=…&against=<ref>`로 받는다 — merge-base →
+HEAD 를 비교한다. (기준점의 옛 파라미터가 `base=1`이라 이름을 `against`로 갈랐다.)
+
 ## POST /api/fetch · POST /api/pull
 
 원격 조작은 이 둘이 전부다 — push·rebase·reset은 만들지 않는다. 본문은 없다.

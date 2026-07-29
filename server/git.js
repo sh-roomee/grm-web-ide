@@ -698,6 +698,65 @@ export async function unstageFile(repo, path) {
   await git(repo, ['reset', '-q', 'HEAD', '--', path])
 }
 
+// --- 브랜치 비교 (base...HEAD)
+//
+// 두 점(diff base HEAD)이 아니라 merge-base 기준이다. 두 점은 base가 그동안
+// 전진한 것까지 "이 브랜치의 변경"처럼 보여줘서 PR 리뷰 관점에서 거짓이 된다.
+// GitHub PR과 같은 의미론(세 점)을 쓴다.
+
+/** 비교 기준의 기본값: 원격 기본 브랜치 → main → master. 없으면 null. */
+export async function defaultCompareBase(repo) {
+  const sym = (
+    await git(repo, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], { allowFail: true })
+  ).trim()
+  if (sym) return sym
+  for (const name of ['main', 'master']) {
+    const found = (
+      await git(repo, ['rev-parse', '--verify', '--quiet', name], { allowFail: true })
+    ).trim()
+    if (found) return name
+  }
+  return null
+}
+
+export async function mergeBaseOf(repo, base) {
+  const out = (await git(repo, ['merge-base', base, 'HEAD'], { allowFail: true })).trim()
+  if (!out) {
+    // 히스토리가 아예 갈라져 공통 조상이 없는 경우(별개 루트)
+    throw Object.assign(new Error(`'${base}'와 공통 조상이 없습니다`), { status: 400 })
+  }
+  return out
+}
+
+/** base...HEAD 요약 — 바뀐 파일 목록과 커밋 수. */
+export async function compareSummary(repo, base) {
+  const mergeBase = await mergeBaseOf(repo, base)
+  const head = (await git(repo, ['rev-parse', 'HEAD'])).trim()
+
+  const args = ['diff', '-M', '--no-color', mergeBase, head]
+  const [numstat, nameStatus, counts] = await Promise.all([
+    git(repo, [...args, '--numstat'], { allowFail: true }),
+    git(repo, [...args, '--name-status'], { allowFail: true }),
+    git(repo, ['rev-list', '--left-right', '--count', `${base}...HEAD`], { allowFail: true }),
+  ])
+
+  const m = counts.trim().match(/^(\d+)\s+(\d+)$/)
+  return {
+    base,
+    mergeBase,
+    head,
+    behind: m ? Number(m[1]) : 0, // base 쪽에만 있는 커밋 (참고용)
+    ahead: m ? Number(m[2]) : 0, // 이 브랜치가 쌓은 커밋
+    files: mergeFileStats(numstat, nameStatus),
+  }
+}
+
+/** 두 리비전 사이 파일 하나의 diff (비교 화면용: merge-base → HEAD). */
+export async function rangeFileDiff(repo, from, to, path, { context = 3 } = {}) {
+  const ctx = `-U${Number.isInteger(context) ? context : 3}`
+  return git(repo, ['diff', '--no-color', '-M', ctx, from, to, '--', path], { allowFail: true })
+}
+
 // --- 원격. 지원은 fetch와 fast-forward pull까지다 — 히스토리를 다시 쓰는
 // 조작(push·rebase·reset)은 넣지 않는다. CLAUDE.md 범위 규칙 참고.
 

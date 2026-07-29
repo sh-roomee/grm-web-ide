@@ -28,6 +28,7 @@ const CLOSED_MAX = 10
 export function tabId(doc) {
   if (doc.kind === 'file') return `file:${doc.path}`
   if (doc.kind === 'commit') return `commit:${doc.sha}:${doc.path}`
+  if (doc.kind === 'compare') return `compare:${doc.base}:${doc.path}`
   return `work:${doc.staged ? 'staged' : 'unstaged'}:${doc.path}`
 }
 

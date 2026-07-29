@@ -11,6 +11,7 @@ const emit = defineEmits(['activate', 'pin', 'close', 'close-all'])
 const KIND = {
   worktree: { char: 'M', cls: 'k-work', title: '워킹트리 변경' },
   commit: { char: 'C', cls: 'k-commit', title: '커밋 안의 변경' },
+  compare: { char: 'B', cls: 'k-compare', title: '브랜치 비교 (merge-base 대비)' },
   file: { char: 'F', cls: 'k-file', title: '파일 (읽기 전용)' },
 }
 
@@ -120,6 +121,9 @@ const dirName = (path) => {
 }
 .k-commit {
   color: var(--status-conflicted);
+}
+.k-compare {
+  color: var(--status-untracked);
 }
 .k-file {
   color: var(--fg-faint);

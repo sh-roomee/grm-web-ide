@@ -85,9 +85,10 @@ export async function fetchBlobText(file, side, opts = {}) {
  * @param file {path, staged?, untracked?}
  * @param opts.sha 커밋 해시. 주면 워킹트리가 아니라 그 커밋 안의 변경을 본다.
  */
-export function fetchDiff(file, { context = 3, sha = null, compare = 'head' } = {}) {
+export function fetchDiff(file, { context = 3, sha = null, compare = 'head', against = null } = {}) {
   const params = new URLSearchParams({ path: file.path, context: String(context) })
-  if (sha) params.set('sha', sha)
+  if (against) params.set('against', against)
+  else if (sha) params.set('sha', sha)
   else if (compare !== 'head') params.set('compare', compare)
   else {
     if (file.staged) params.set('staged', '1')
@@ -95,6 +96,10 @@ export function fetchDiff(file, { context = 3, sha = null, compare = 'head' } = 
   }
   return request(`/api/diff?${params}`)
 }
+
+/** 브랜치 비교 (base...HEAD). base를 안 주면 서버가 기본 브랜치를 찾는다. */
+export const fetchCompare = (base = null) =>
+  request(`/api/compare${base ? `?base=${encodeURIComponent(base)}` : ''}`)
 
 // 기준점 — "여기까지 봤다"
 export const setBaseline = () => request('/api/baseline', { method: 'POST', body: '{}' })

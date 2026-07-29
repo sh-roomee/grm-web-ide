@@ -221,6 +221,22 @@ export function createServer({ repo, token, gitDir, dev = false }) {
     }),
   )
 
+  // --- 브랜치 비교 (base...HEAD). base를 안 주면 기본 브랜치를 찾는다.
+  app.get(
+    '/api/compare',
+    wrap(async (req, res) => {
+      const asked = typeof req.query.base === 'string' ? req.query.base.trim() : ''
+      const base = asked
+        ? await gitApi.resolveRef(repo, asked)
+        : await gitApi.defaultCompareBase(repo)
+      if (!base) {
+        const message = asked ? `'${asked}' 브랜치를 찾을 수 없습니다` : '비교할 기준 브랜치가 없습니다'
+        throw Object.assign(new Error(message), { status: 400 })
+      }
+      res.json(await gitApi.compareSummary(repo, base))
+    }),
+  )
+
   app.get(
     '/api/diff',
     wrap(async (req, res) => {
@@ -232,6 +248,15 @@ export function createServer({ repo, token, gitDir, dev = false }) {
       const sha = validSha(req.query.sha)
       const wanted = readCompare(req.query)
 
+      // 브랜치 비교(`against=<ref>`)면 merge-base → HEAD 를 본다.
+      // 기준점의 옛 파라미터가 base=1 이라 이름을 against 로 갈랐다 (readCompare 참고).
+      const againstAsked = typeof req.query.against === 'string' ? req.query.against.trim() : ''
+      const against = againstAsked ? await gitApi.resolveRef(repo, againstAsked) : null
+      if (againstAsked && !against) {
+        throw Object.assign(new Error(`'${againstAsked}' 브랜치를 찾을 수 없습니다`), { status: 400 })
+      }
+      const againstBase = against ? await gitApi.mergeBaseOf(repo, against) : null
+
       /**
        * 요청한 비교 대상으로 diff를 뜬다. 뜰 수 없으면 HEAD 대비로 떨어뜨리고
        * **무엇으로 떴는지 함께 돌려준다** — 화면이 고른 것과 실제가 어긋날 수 있어서다.
@@ -241,6 +266,12 @@ export function createServer({ repo, token, gitDir, dev = false }) {
        * 것처럼 보인다. 그건 사실이 아니라 답할 수 없는 질문이므로 여기서도 막는다.
        */
       async function diffFor() {
+        if (againstBase) {
+          return {
+            raw: await gitApi.rangeFileDiff(repo, againstBase, 'HEAD', relPath, { context }),
+            compare: COMPARE.head,
+          }
+        }
         if (sha) return { raw: await gitApi.commitFileDiff(repo, sha, relPath, { context }), compare: COMPARE.head }
         if (wanted === COMPARE.baseline) {
           return { raw: await gitApi.baselineFileDiff(repo, gitDir, relPath, { context }), compare: wanted }
@@ -270,10 +301,12 @@ export function createServer({ repo, token, gitDir, dev = false }) {
         preview = { ...info, before: null, after: null }
       } else if (info) {
         const compareRef = compareRefName(compare)
-        const revs = {
-          before: previewRev({ side: 'before', sha, staged, compare, untracked, compareRef }),
-          after: previewRev({ side: 'after', sha, staged, compare, untracked, compareRef }),
-        }
+        const revs = againstBase
+          ? { before: againstBase, after: 'HEAD' } // 비교 화면: merge-base ↔ HEAD
+          : {
+              before: previewRev({ side: 'before', sha, staged, compare, untracked, compareRef }),
+              after: previewRev({ side: 'after', sha, staged, compare, untracked, compareRef }),
+            }
         const [before, after] = await Promise.all([
           revs.before === false ? null : gitApi.blobSize(repo, relPath, { rev: revs.before }),
           revs.after === false ? null : gitApi.blobSize(repo, relPath, { rev: revs.after }),

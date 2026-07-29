@@ -4,6 +4,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import ChangeList from './components/ChangeList.vue'
 import CommitList from './components/CommitList.vue'
 import FileTree from './components/FileTree.vue'
+import RefPicker from './components/RefPicker.vue'
 import DiffViewer from './components/DiffViewer.vue'
 import SearchEverywhere from './components/SearchEverywhere.vue'
 import ReviewSheet from './components/ReviewSheet.vue'
@@ -205,6 +206,62 @@ watch(
 const commitGroups = computed(() => [
   { key: 'commit', title: '', files: history.detail.value?.files ?? [] },
 ])
+
+/**
+ * 브랜치 비교 (base...HEAD, merge-base 기준).
+ *
+ * "이 브랜치가 결국 무엇을 바꿨나" — PR 올리기 전 마지막 확인 자리다. 변경사항
+ * 화면과 같은 레이아웃을 쓰고, 코멘트도 그대로 단다(코드가 워킹트리에 있으므로
+ * 반영 판정까지 워킹트리 코멘트처럼 동작한다).
+ */
+const compareInfo = ref(null) // { base, mergeBase, head, ahead, behind, files }
+const compareFile = ref(null)
+const compareRefs = ref([]) // 기준 선택기(RefPicker)에 줄 목록
+
+async function startCompare(base = compareInfo.value?.base ?? null) {
+  try {
+    const info = await api.fetchCompare(base)
+    compareInfo.value = info
+    view.value = 'compare'
+    compareFile.value = info.files[0] ?? null
+  } catch (err) {
+    showToast(err.message, { ttl: 6000 })
+    return
+  }
+  if (!compareRefs.value.length) {
+    try {
+      compareRefs.value = (await api.fetchRefs()).refs
+    } catch {
+      // 선택기 목록만 비는 것 — 비교 자체는 이미 떠 있다
+    }
+  }
+}
+
+function closeCompare() {
+  compareInfo.value = null
+  compareFile.value = null
+  view.value = 'changes'
+}
+
+const compareGroups = computed(() => [
+  { key: 'compare', title: '', files: compareInfo.value?.files ?? [] },
+])
+
+/** 비교에서 파일을 고르면 비교 탭이 열린다 (커밋 화면과 같은 규칙). */
+watch(compareFile, (file) => {
+  if (!file || !compareInfo.value) return
+  tabs.open({
+    kind: 'compare',
+    path: file.path,
+    base: compareInfo.value.base,
+    sub: `↔ ${compareInfo.value.base}`,
+  })
+})
+
+function pinCompareFile(file) {
+  if (!compareInfo.value) return
+  tabs.pin(tabId({ kind: 'compare', path: file.path, base: compareInfo.value.base }))
+}
 
 // --- 통합 검색 (Shift 두 번 / ⌘P / ⌘⇧F)
 const paletteOpen = ref(false)
@@ -623,6 +680,7 @@ async function loadActive() {
             {
               context: context.value,
               sha: tab.kind === 'commit' ? tab.sha : null,
+              against: tab.kind === 'compare' ? tab.base : null,
               // 워킹트리 탭만 기준점·확인 시점 대비로 볼 수 있다
               compare: tab.kind === 'worktree' ? compareFor(tab) : 'head',
             },
@@ -703,6 +761,15 @@ onMounted(async () => {
       // 파일이 트리에 없으면 가장 자주 찾을 것을 못 찾는다
       const jobs = [loadStatus(), loadRisks(), comments.load(), basket.load()]
       if (fileList.value.length) jobs.push(loadFiles())
+      // 비교를 열어 뒀으면 목록도 따라온다 — AI가 커밋하면 HEAD가 움직인다
+      if (compareInfo.value) {
+        jobs.push(
+          api
+            .fetchCompare(compareInfo.value.base)
+            .then((info) => (compareInfo.value = info))
+            .catch(() => {}), // 기준 브랜치가 사라진 경우 등 — 다음 갱신에서 다시
+        )
+      }
       await Promise.all(jobs)
       await loadActive()
       setTimeout(() => (live.value = false), 600)
@@ -894,6 +961,14 @@ function onKey(event) {
     <header class="top">
       <strong class="repo">{{ repo?.name ?? '…' }}</strong>
       <span class="branch">⎇ {{ repo?.branch ?? '' }}</span>
+      <button
+        v-if="!compareInfo"
+        class="compare-btn"
+        title="현재 브랜치를 다른 브랜치와 비교 (merge-base 기준) — 이 브랜치가 결국 무엇을 바꿨나"
+        @click="startCompare()"
+      >
+        ↔ 비교
+      </button>
 
       <div class="tabs" role="tablist">
         <button
@@ -907,6 +982,16 @@ function onKey(event) {
           @click="view = tab.key"
         >
           {{ tab.label }}
+        </button>
+        <button
+          v-if="compareInfo"
+          class="tab"
+          :class="{ on: view === 'compare' }"
+          role="tab"
+          :aria-selected="view === 'compare'"
+          @click="view = 'compare'"
+        >
+          ↔ {{ compareInfo.base }}
         </button>
       </div>
 
@@ -1031,6 +1116,35 @@ function onKey(event) {
             @review-all="review.markAll($event.files, true)"
             @stage="act(api.stageFile, $event)"
             @unstage="act(api.unstageFile, $event)"
+          />
+        </div>
+
+        <!-- 브랜치 비교: 기준 선택 + 바뀐 파일 목록 -->
+        <div v-else-if="view === 'compare'" class="compare-side">
+          <div class="cmp-head">
+            <RefPicker
+              :refs="compareRefs"
+              :selected="compareInfo?.base ?? null"
+              @select="startCompare($event)"
+            />
+            <span class="spacer" />
+            <button class="drop-btn" title="비교 닫기" @click="closeCompare()">✕</button>
+          </div>
+          <p class="cmp-meta">
+            {{ compareInfo?.base }}…{{ repo?.branch }} · 커밋 {{ compareInfo?.ahead ?? 0 }}개
+            <template v-if="compareInfo?.behind">
+              · 기준이 {{ compareInfo.behind }}개 앞서 있음
+            </template>
+          </p>
+          <ChangeList
+            class="cmp-files"
+            :groups="compareGroups"
+            :selected="compareFile"
+            readonly
+            title="바뀐 파일"
+            count-label="개"
+            @select="compareFile = $event"
+            @pin="pinCompareFile($event)"
           />
         </div>
 
@@ -1251,6 +1365,19 @@ function onKey(event) {
   color: var(--fg-dim);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+/* 브랜치 비교 진입. 브랜치 이름 옆 — "이 브랜치가 결국 무엇을 바꿨나"로 가는 문 */
+.compare-btn {
+  flex: none;
+  padding: 2px 9px;
+  border-radius: var(--r-pill);
+  color: var(--fg-dim);
+  font-size: 11.5px;
+  background: rgba(118, 118, 128, 0.16);
+}
+.compare-btn:hover {
+  color: var(--fg);
+  background: rgba(118, 118, 128, 0.3);
 }
 .head {
   color: var(--fg-faint);
@@ -1527,6 +1654,32 @@ function onKey(event) {
 .splitter:active::after {
   height: 2px;
   background: var(--accent);
+}
+
+/* 브랜치 비교: 위에 기준 선택, 아래 파일 목록 */
+.compare-side {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.cmp-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 0;
+  flex: none;
+}
+.cmp-meta {
+  padding: 6px 16px 2px;
+  color: var(--fg-dim);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+.cmp-files {
+  flex: 1;
+  min-height: 0;
 }
 
 /* 히스토리 탭에서만 좌측을 위아래로 나눈다 */
