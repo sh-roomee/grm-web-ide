@@ -227,9 +227,9 @@ async function openPalette(tab = 'all', seed = '') {
   if (!fileList.value.length) await loadFiles()
 }
 
-// --- 디렉토리 트리 (사이드바). 펼침 여부만 기억한다
+// --- 디렉토리 트리 (사이드바). 펼침 여부만 기억하고, 처음에는 펼쳐져 있다
 const TREE_KEY = 'grmide:tree-open'
-const treeOpen = ref(localStorage.getItem(TREE_KEY) === '1')
+const treeOpen = ref(localStorage.getItem(TREE_KEY) !== '0')
 watch(treeOpen, (open) => {
   localStorage.setItem(TREE_KEY, open ? '1' : '0')
   if (open && !fileList.value.length) loadFiles()

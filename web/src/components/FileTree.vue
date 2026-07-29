@@ -159,24 +159,27 @@ const rows = computed(() => {
   overflow: hidden;
 }
 
+/* 변경사항 헤더(ChangeList .list-header)와 같은 급의 제목 — 같은 층위의 섹션이다 */
 .tree-header {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 7px;
   width: 100%;
-  padding: 8px 16px 6px;
+  padding: 12px 16px 8px;
   text-align: left;
-  color: var(--fg-dim);
-  font-size: 11.5px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
   flex: none;
 }
-.tree-header:hover {
-  color: var(--fg);
+.t-title {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.tree-header:hover .t-title {
+  color: var(--fg-dim);
 }
 .t-count {
   color: var(--fg-faint);
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
