@@ -17,7 +17,14 @@ const props = defineProps({
   activePath: { type: String, default: null },
 })
 
-const emit = defineEmits(['update:open', 'select', 'pin'])
+const emit = defineEmits(['update:open', 'select', 'pin', 'menu'])
+
+/** 파일 행 우클릭 → 부모가 컨텍스트 메뉴를 연다. 디렉토리는 대상이 아니다. */
+function onRowMenu(event, row) {
+  if (row.dir) return
+  event.preventDefault()
+  emit('menu', { path: row.path, event })
+}
 
 // 펼친 디렉토리들. 세션 안에서만 기억한다 — 다음에 켤 때는 접힌 상태가
 // "지금 저장소가 어떻게 생겼나"를 다시 보여 주는 시작점이다.
@@ -132,6 +139,7 @@ const rows = computed(() => {
         :title="row.dir ? row.path : '한 번 누르면 미리 보기, 두 번 누르면 탭으로 붙잡는다'"
         @click="row.dir ? toggleDir(row.path) : emit('select', row.path)"
         @dblclick="row.dir || emit('pin', row.path)"
+        @contextmenu="onRowMenu($event, row)"
         @keydown="onRowKey($event, row, index)"
       >
         <span v-if="row.dir" class="chev" :class="{ down: row.opened }">›</span>

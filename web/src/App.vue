@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import ChangeList from './components/ChangeList.vue'
 import CommitList from './components/CommitList.vue'
+import ContextMenu from './components/ContextMenu.vue'
 import FileTree from './components/FileTree.vue'
 import RefPicker from './components/RefPicker.vue'
 import DiffViewer from './components/DiffViewer.vue'
@@ -241,6 +242,70 @@ function closeCompare() {
   compareInfo.value = null
   compareFile.value = null
   view.value = 'changes'
+}
+
+/**
+ * 우클릭 컨텍스트 메뉴 — IDE의 편집기 메뉴 자리.
+ *
+ * git 기능은 `Git ▸` 하위로 묶는다. 지금은 셋(비교·fetch·pull)이지만
+ * blame·파일 히스토리가 들어올 자리가 이곳이다 — 기능이 늘 때마다 화면
+ * 어딘가에 버튼을 더 박지 않아도 된다.
+ */
+const ctxMenu = ref(null) // { x, y, sections }
+let ctxFile = null // 메뉴가 가리키는 파일 { path, staged? } | null
+
+function gitMenuItems() {
+  return {
+    key: 'git',
+    label: 'Git',
+    children: [
+      { key: 'git:compare', label: '브랜치 비교…' },
+      { key: 'git:fetch', label: 'git fetch' },
+      { key: 'git:pull', label: 'git pull', hint: 'ff-only' },
+    ],
+  }
+}
+
+function openFileMenu(event, file = null, { stageable = false } = {}) {
+  ctxFile = file
+  const sections = []
+  if (file) {
+    const items = [
+      { key: 'open', label: '탭으로 열기' },
+      { key: 'stash', label: '컨텍스트에 담기' },
+      { key: 'copy-path', label: '경로 복사' },
+    ]
+    if (stageable) {
+      items.splice(2, 0, {
+        key: file.staged ? 'unstage' : 'stage',
+        label: file.staged ? 'unstage' : 'stage',
+      })
+    }
+    sections.push({ items })
+  }
+  sections.push({ items: [gitMenuItems()] })
+  ctxMenu.value = { x: event.clientX, y: event.clientY, sections }
+}
+
+/** 코드 영역 우클릭. 입력창은 브라우저 기본 메뉴가 맞다 — 붙여넣기가 필요하다. */
+function onMainContext(event) {
+  if (event.target.closest('input, textarea')) return
+  event.preventDefault()
+  const tab = tabs.active.value
+  openFileMenu(event, tab ? { path: tab.path, staged: tab.staged ?? null } : null)
+}
+
+async function onMenuPick(key) {
+  const file = ctxFile
+  if (key === 'open' && file) openFile({ path: file.path })
+  else if (key === 'stash' && file) stash({ kind: 'file', path: file.path })
+  else if (key === 'copy-path' && file) {
+    if (await copyToClipboard(file.path)) showToast(`경로 복사됨 — ${file.path}`, { ttl: 2500 })
+  } else if (key === 'stage' && file) act(api.stageFile, file)
+  else if (key === 'unstage' && file) act(api.unstageFile, file)
+  else if (key === 'git:compare') startCompare()
+  else if (key === 'git:fetch') runAction('fetch')
+  else if (key === 'git:pull') runAction('pull')
 }
 
 const compareGroups = computed(() => [
@@ -1100,6 +1165,7 @@ function onKey(event) {
             :style="treeOpen ? { height: `${treeHeight}px` } : null"
             @select="openFile({ path: $event }, { pin: false })"
             @pin="openFile({ path: $event })"
+            @menu="openFileMenu($event.event, { path: $event.path })"
           />
           <div v-if="treeOpen" class="splitter" @mousedown.prevent="startSplit" />
           <ChangeList
@@ -1116,6 +1182,7 @@ function onKey(event) {
             @review-all="review.markAll($event.files, true)"
             @stage="act(api.stageFile, $event)"
             @unstage="act(api.unstageFile, $event)"
+            @menu="openFileMenu($event.event, $event.file, { stageable: true })"
           />
         </div>
 
@@ -1145,6 +1212,7 @@ function onKey(event) {
             count-label="개"
             @select="compareFile = $event"
             @pin="pinCompareFile($event)"
+            @menu="openFileMenu($event.event, $event.file)"
           />
         </div>
 
@@ -1194,12 +1262,13 @@ function onKey(event) {
               count-label="개"
               @select="commitFile = $event"
               @pin="pinCommitFile($event)"
+              @menu="openFileMenu($event.event, $event.file)"
             />
           </div>
         </div>
       </aside>
 
-      <section class="main">
+      <section class="main" @contextmenu="onMainContext">
         <TabBar
           :tabs="tabs.tabs.value"
           :active-id="tabs.activeId.value"
@@ -1316,6 +1385,8 @@ function onKey(event) {
       {{ codeFont.size.value }}px
       <span v-if="codeFont.isDefault.value">기본</span>
     </div>
+
+    <ContextMenu v-if="ctxMenu" :menu="ctxMenu" @close="ctxMenu = null" @pick="onMenuPick" />
 
     <!-- 원격 작업(fetch/pull)의 진행·결과. 실행 중에는 스피너가 돈다 -->
     <div v-if="toast" class="toast" role="status">
