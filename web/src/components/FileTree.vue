@@ -32,6 +32,51 @@ function toggleDir(path) {
 
 const cmp = (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }) || a.localeCompare(b)
 
+const scroller = ref(null)
+
+/**
+ * 행에 포커스가 있을 때의 키보드 — IDE 트리의 관례를 따른다.
+ *
+ * ↑↓  이웃 행으로 (기본 동작은 스크롤이라 가로챈다)
+ * →   접힌 디렉토리는 펼치고, 펼쳐진 디렉토리는 첫 자식으로
+ * ←   펼쳐진 디렉토리는 접고, 그 외(접힌 것·파일)는 부모로
+ * Enter/Space는 버튼 기본 동작(click)이라 따로 다루지 않는다.
+ */
+function onRowKey(event, row, index) {
+  const key = event.key
+
+  if (key === 'ArrowDown' || key === 'ArrowUp') {
+    event.preventDefault()
+    focusRow(index + (key === 'ArrowDown' ? 1 : -1))
+    return
+  }
+  if (key === 'ArrowRight') {
+    event.preventDefault()
+    if (!row.dir) return
+    if (row.opened) focusRow(index + 1)
+    else toggleDir(row.path)
+    return
+  }
+  if (key === 'ArrowLeft') {
+    event.preventDefault()
+    if (row.dir && row.opened) {
+      toggleDir(row.path)
+      return
+    }
+    const parent = row.path.slice(0, row.path.lastIndexOf('/'))
+    if (!parent) return
+    focusRow(rows.value.findIndex((r) => r.path === parent))
+  }
+}
+
+function focusRow(index) {
+  const list = scroller.value?.querySelectorAll('.t-row')
+  if (!list?.length || index < 0) return
+  const el = list[Math.min(index, list.length - 1)]
+  el.focus()
+  el.scrollIntoView({ block: 'nearest' })
+}
+
 /**
  * 경로 목록 → 화면에 보이는 행. 접힌 디렉토리의 안쪽은 아예 만들지 않는다.
  * 디렉토리 먼저, 그다음 파일 — IDE 트리의 관례다.
@@ -77,9 +122,9 @@ const rows = computed(() => {
       <span v-if="files.length" class="t-count">{{ files.length }}</span>
     </button>
 
-    <div v-if="open" class="tree-scroll">
+    <div v-if="open" ref="scroller" class="tree-scroll">
       <button
-        v-for="row in rows"
+        v-for="(row, index) in rows"
         :key="row.path"
         class="t-row"
         :class="{ active: !row.dir && row.path === activePath }"
@@ -87,6 +132,7 @@ const rows = computed(() => {
         :title="row.dir ? row.path : '한 번 누르면 미리 보기, 두 번 누르면 탭으로 붙잡는다'"
         @click="row.dir ? toggleDir(row.path) : emit('select', row.path)"
         @dblclick="row.dir || emit('pin', row.path)"
+        @keydown="onRowKey($event, row, index)"
       >
         <span v-if="row.dir" class="chev" :class="{ down: row.opened }">›</span>
         <span v-else class="chev-pad" />
@@ -171,6 +217,11 @@ const rows = computed(() => {
 }
 .t-row:hover {
   background: var(--bg-elevated);
+}
+/* 키보드로 옮겨 다닐 때의 자리 표시. 브라우저 기본 링은 행 밖으로 튀어나온다 */
+.t-row:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: -1.5px;
 }
 .t-row.active {
   background: var(--accent-soft);
