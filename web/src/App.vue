@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import ChangeList from './components/ChangeList.vue'
 import CommitList from './components/CommitList.vue'
+import BranchSelect from './components/BranchSelect.vue'
 import ContextMenu from './components/ContextMenu.vue'
 import FileTree from './components/FileTree.vue'
 import RefPicker from './components/RefPicker.vue'
@@ -248,6 +249,32 @@ function closeCompare() {
 }
 
 /**
+ * 우클릭 → Git → 브랜치 비교: 브랜치를 **먼저 고른다** (IntelliJ의
+ * Compare with Branch). 파일을 보다가 들어온 것이므로, 고르면 비교 화면으로
+ * 가면서 **그 파일**이 열린다. 그 파일에 차이가 없으면 없다고 알린다.
+ */
+const branchSelect = ref(null) // { path } | null — 열려 있으면 선택 팝업
+function askCompareBranch(path = null) {
+  branchSelect.value = { path }
+  if (!compareRefs.value.length) {
+    api
+      .fetchRefs()
+      .then((r) => (compareRefs.value = r.refs))
+      .catch(() => {}) // 목록만 빈다 — 팝업에서 "없습니다"로 보인다
+  }
+}
+
+async function pickCompareBranch(base) {
+  const path = branchSelect.value?.path ?? null
+  branchSelect.value = null
+  await startCompare(base)
+  if (!path || !compareInfo.value) return
+  const file = compareInfo.value.files.find((f) => f.path === path)
+  if (file) compareFile.value = file
+  else showToast(`차이 없음 — ${path} · ${base} 기준으로 내용이 같다`, { ttl: 5000 })
+}
+
+/**
  * 우클릭 컨텍스트 메뉴 — IDE의 편집기 메뉴 자리.
  *
  * git 기능은 `Git ▸` 하위로 묶는다. 지금은 셋(비교·fetch·pull)이지만
@@ -306,7 +333,7 @@ async function onMenuPick(key) {
     if (await copyToClipboard(file.path)) showToast(`경로 복사됨 — ${file.path}`, { ttl: 2500 })
   } else if (key === 'stage' && file) act(api.stageFile, file)
   else if (key === 'unstage' && file) act(api.unstageFile, file)
-  else if (key === 'git:compare') startCompare()
+  else if (key === 'git:compare') askCompareBranch(file?.path ?? null)
   else if (key === 'git:fetch') runAction('fetch')
   else if (key === 'git:pull') runAction('pull')
 }
@@ -902,12 +929,17 @@ function onKey(event) {
   // Esc는 어디에 포커스가 있든 열린 것을 닫는다
   if (
     event.key === 'Escape' &&
-    (paletteOpen.value || reviewOpen.value || contextOpen.value || summaryOpen.value)
+    (paletteOpen.value ||
+      reviewOpen.value ||
+      contextOpen.value ||
+      summaryOpen.value ||
+      branchSelect.value)
   ) {
     paletteOpen.value = false
     reviewOpen.value = false
     contextOpen.value = false
     summaryOpen.value = false
+    branchSelect.value = null
     return
   }
 
@@ -1432,6 +1464,13 @@ function onKey(event) {
     </div>
 
     <ContextMenu v-if="ctxMenu" :menu="ctxMenu" @close="ctxMenu = null" @pick="onMenuPick" />
+
+    <BranchSelect
+      :open="!!branchSelect"
+      :refs="compareRefs"
+      @close="branchSelect = null"
+      @select="pickCompareBranch($event)"
+    />
 
     <!-- 원격 작업(fetch/pull)의 진행·결과. 실행 중에는 스피너가 돈다 -->
     <div v-if="toast" class="toast" role="status">
