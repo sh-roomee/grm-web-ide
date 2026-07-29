@@ -33,9 +33,17 @@ for (const [names, def] of [
   [['package.json'], icon('npm', 'red')],
   [['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lockb'], icon('LK', 'gray')],
   [['.gitignore', '.gitattributes', '.gitmodules'], icon('git', 'orange')],
-  [['dockerfile', 'docker-compose.yml', 'docker-compose.yaml'], icon('DK', 'blue')],
+  [['dockerfile', 'docker-compose.yml', 'docker-compose.yaml', '.dockerignore'], icon('DK', 'blue')],
   [['makefile'], icon('MK', 'gray')],
   [['license', 'license.md', 'license.txt', 'copying'], icon('§', 'gray')],
+  // 확장자가 없는 설정 파일들 — 이름 자체가 형식이다. 없으면 전부 회색 점이 된다
+  [['.prettierrc', '.prettierignore'], icon('PR', 'pink')],
+  [['.eslintrc', '.eslintignore'], icon('ES', 'indigo')],
+  [['.babelrc'], icon('BA', 'yellow')],
+  [['.editorconfig'], icon('EC', 'gray')],
+  [['.npmrc', '.nvmrc'], icon('npm', 'red')],
+  [['jenkinsfile'], icon('JK', 'teal')],
+  [['tsconfig.json', 'jsconfig.json'], icon('TS', 'blue')],
 ]) {
   for (const name of names) registerName(name, def)
 }
@@ -63,6 +71,7 @@ for (const [exts, def] of [
   [['go'], icon('GO', 'teal')],
   [['rs'], icon('RS', 'orange')],
   [['java'], icon('J', 'orange')],
+  [['groovy', 'gradle'], icon('GR', 'teal')],
   [['kt', 'kts'], icon('K', 'purple')],
   [['c'], icon('C', 'blue')],
   [['h'], icon('H', 'purple')],

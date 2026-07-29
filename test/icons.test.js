@@ -14,7 +14,16 @@ test('파일명이 확장자보다 먼저다', () => {
   assert.deepEqual(iconFor('a/b/package-lock.json'), { label: 'LK', tone: 'gray' })
   assert.deepEqual(iconFor('.gitignore'), { label: 'git', tone: 'orange' })
   // 파일명 표에 없는 json은 확장자로 떨어진다
-  assert.deepEqual(iconFor('tsconfig.json'), { label: '{}', tone: 'yellow' })
+  assert.deepEqual(iconFor('src/manifest.json'), { label: '{}', tone: 'yellow' })
+})
+
+test('확장자 없는 설정 파일도 아이콘이 있다', () => {
+  // 없으면 전부 회색 점이 되어 목록에서 구분이 안 된다
+  assert.equal(iconFor('.prettierrc').label, 'PR')
+  assert.equal(iconFor('web/.eslintrc').label, 'ES')
+  assert.equal(iconFor('Jenkinsfile').label, 'JK')
+  assert.equal(iconFor('.npmrc').label, 'npm')
+  assert.equal(iconFor('tsconfig.json').label, 'TS') // 이름이 확장자보다 먼저
 })
 
 test('.env는 변형(.env.local 등)까지 잡는다', () => {

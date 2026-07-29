@@ -364,8 +364,19 @@ png을 바꾸면 `git diff`는 `Binary files differ` 한 줄을 준다. 터미�
 
 ### 문법 강조
 
-언어별 플러그인 구조다. 지원: **js/ts · vue · html · css/scss · json · java**.
-그 외 확장자는 색 없이 나온다.
+언어별 플러그인 구조다. 지원: **js/ts · vue · html · css/scss · json · java ·
+groovy · yaml · shell · properties · ignore · dockerfile**. 그 외 확장자는 색 없이
+나온다.
+
+**확장자가 없는 설정 파일도 이름으로 알아본다.** `.gitignore`·`.prettierrc`·
+`Jenkinsfile`·`Dockerfile`·`.npmrc`·`.env`(와 `.env.production` 같은 변형)가
+평문으로 나오던 것들이다. 이름 규칙이 확장자보다 먼저라, `.prettierrc`는 JSON으로
+칠한다 — 확장자가 아니라 내용이 그렇기 때문이다.
+
+`Jenkinsfile`은 java가 아니라 **groovy**로 칠한다. 선언적 파이프라인에는 자바
+키워드가 한 줄도 나오지 않고 `pipeline`·`agent`·`stages`·`stage`·`steps`처럼
+**DSL 블록 이름이 곧 구조**라서, 그것들을 키워드로 본다. `"${IMAGE}:${TAG}"` 같은
+GString 보간도 문자열에서 떼어 따로 칠한다.
 
 `java`는 **애너테이션과 타입**을 따로 칠한다. 자바 한 줄은
 `@Override public ResponseEntity<RoomDto> getRoom(@PathVariable Long id)` 처럼 수식어로

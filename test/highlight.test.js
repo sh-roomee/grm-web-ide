@@ -173,6 +173,94 @@ test('detectLanguage: 확장자로 언어를 고른다', () => {
   assert.equal(detectLanguage('ko.json'), 'json')
   assert.equal(detectLanguage('src/main/java/RoomController.java'), 'java')
   assert.equal(detectLanguage('README.md'), 'plain')
+  assert.equal(detectLanguage('.github/workflows/ci.yml'), 'yaml')
+  assert.equal(detectLanguage('scripts/build.sh'), 'shell')
+  assert.equal(detectLanguage('gradle.properties'), 'properties')
+})
+
+/**
+ * 확장자가 없는 설정 파일들. 이름 자체가 형식이라 확장자 표로는 잡히지 않고,
+ * 빠뜨리면 화면에 색 없이(plain) 조용히 나온다.
+ */
+test('detectLanguage: 이름으로 정해지는 설정 파일들', () => {
+  assert.equal(detectLanguage('.gitignore'), 'ignore')
+  assert.equal(detectLanguage('web/.prettierignore'), 'ignore')
+  assert.equal(detectLanguage('.prettierrc'), 'json') // 내용이 JSON이다
+  assert.equal(detectLanguage('.npmrc'), 'properties')
+  assert.equal(detectLanguage('Jenkinsfile'), 'groovy')
+  assert.equal(detectLanguage('build.gradle'), 'groovy')
+  assert.equal(detectLanguage('deploy/Dockerfile'), 'docker')
+  assert.equal(detectLanguage('.env'), 'properties')
+  assert.equal(detectLanguage('.env.production'), 'properties') // 변형까지
+  // 이름 규칙이 확장자보다 먼저다: .prettierrc는 rc 확장자가 아니라 JSON
+  assert.equal(detectLanguage('a/b/.gitignore'), 'ignore')
+})
+
+test('새 플러그인들이 레지스트리에 등록돼 있다', () => {
+  // 등록을 빠뜨리면 서버는 언어를 알려주는데 화면은 색 없이 나온다
+  for (const id of ['yaml', 'shell', 'properties', 'ignore', 'docker', 'groovy']) {
+    assert.equal(resolvePlugin(id).id, id, `${id} 미등록`)
+  }
+})
+
+test('groovy: 선언적 파이프라인의 블록 이름을 칠한다', () => {
+  // 자바 키워드가 한 줄도 없는 것이 Jenkinsfile이다 — DSL 이름이 곧 구조다
+  const spans = highlightLine('groovy', "    stage('build') {", null, {})
+  assert.equal(classOf(spans, 'stage'), 'directive')
+  assert.equal(classOf(spans, "'build'"), 'string')
+  assert.equal(classOf(highlightLine('groovy', '  agent any', null, {}), 'agent'), 'directive')
+  assert.equal(classOf(highlightLine('groovy', '  agent any', null, {}), 'any'), 'keyword')
+  // GString 보간
+  assert.equal(classOf(highlightLine('groovy', 'sh "npm ${cmd}"', null, {}), '${cmd}'), 'interp')
+})
+
+test('yaml: 키·문자열·주석·불리언을 구분한다', () => {
+  const spans = highlightLine('yaml', "  name: 'grmide'  # 이름", null, {})
+  assert.equal(classOf(spans, '  name'), 'attr')
+  assert.equal(classOf(spans, "'grmide'"), 'string')
+  assert.equal(classOf(spans, '# 이름'), 'comment')
+  // 값 안의 콜론은 키로 오해되지 않는다 (키는 줄 앞에서만)
+  const url = highlightLine('yaml', '  url: http://a.b/c', null, {})
+  assert.equal(classOf(url, '  url'), 'attr')
+  assert.equal(url.filter((s) => s.cls === 'attr').length, 1)
+})
+
+test('shell: 따옴표 안의 #은 주석이 아니다', () => {
+  const spans = highlightLine('shell', "echo '# not comment' # real", null, {})
+  assert.equal(classOf(spans, "'# not comment'"), 'string')
+  assert.equal(classOf(spans, '# real'), 'comment')
+  assert.equal(classOf(highlightLine('shell', 'if [ -f "$x" ]; then', null, {}), 'if'), 'keyword')
+})
+
+test('properties/ignore/docker: 각자의 뼈대를 칠한다', () => {
+  const env = highlightLine('properties', 'VITE_API=/api', null, {})
+  assert.equal(classOf(env, 'VITE_API'), 'attr')
+
+  const ig = highlightLine('ignore', '!dist/keep.js', null, {})
+  assert.equal(classOf(ig, '!'), 'keyword')
+  assert.equal(classOf(highlightLine('ignore', '# 주석', null, {}), '# 주석'), 'comment')
+
+  const df = highlightLine('docker', 'FROM node:18 AS build', null, {})
+  assert.equal(classOf(df, 'FROM'), 'keyword')
+  // 지시어는 줄 앞에서만 — 중간의 AS는 칠하지 않는다
+  assert.equal(classOf(df, 'AS'), undefined)
+})
+
+test('새 플러그인도 span을 이어붙이면 원본이 복원된다', () => {
+  const lines = [
+    "  name: 'x'  # c",
+    'export PATH="$HOME/bin:$PATH"',
+    '[section]',
+    '**/node_modules/',
+    'RUN npm ci && npm run build',
+    '',
+    '   ',
+  ]
+  for (const language of ['yaml', 'shell', 'properties', 'ignore', 'docker', 'groovy']) {
+    for (const line of lines) {
+      assert.equal(rendered(highlightLine(language, line, null, {})), line, `${language}: ${line}`)
+    }
+  }
 })
 
 test('buildSpans: 문법 토큰과 변경 구간이 걸쳐도 둘 다 살아난다', () => {

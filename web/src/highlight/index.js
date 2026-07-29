@@ -4,6 +4,12 @@ import css from './languages/css.js'
 import json from './languages/json.js'
 import vue from './languages/vue.js'
 import java from './languages/java.js'
+import groovy from './languages/groovy.js'
+import yaml from './languages/yaml.js'
+import shell from './languages/shell.js'
+import properties from './languages/properties.js'
+import ignore from './languages/ignore.js'
+import docker from './languages/docker.js'
 
 /**
  * 문법 강조 플러그인 레지스트리.
@@ -28,7 +34,20 @@ export function register(plugin) {
   return plugin
 }
 
-;[javascript, markup, css, json, vue, java].forEach(register)
+;[
+  javascript,
+  markup,
+  css,
+  json,
+  vue,
+  java,
+  groovy,
+  yaml,
+  shell,
+  properties,
+  ignore,
+  docker,
+].forEach(register)
 
 const PLAIN = { id: 'plain', tokenize: () => [] }
 

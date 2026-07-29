@@ -186,7 +186,8 @@ IntelliJ가 구조적으로 못 하는 일. git에는 HEAD와 index만 있고 "�
 
 - [ ] **가상 스크롤** — 현재 20,000행에서 잘라낸다. 큰 파일을 제대로 보려면 필요.
       문법 강조도 보이는 줄만 칠하면 되므로 같이 이득
-- [ ] 문법 강조 언어 추가 — python, go, yaml, markdown, shell (java 는 넣었다)
+- [ ] 문법 강조 언어 추가 — python, go, markdown, rust
+      (java · groovy · yaml · shell · properties · ignore · dockerfile 은 넣었다)
 - [ ] 여러 줄 주석/템플릿 리터럴 강조 — 줄 단위 무상태의 한계. 훅 단위로
       상태를 이어주면 상당 부분 해결된다
 - [ ] **여러 저장소를 한 데몬에서** — 지금은 저장소마다 프로세스가 뜬다.

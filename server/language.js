@@ -28,9 +28,46 @@ const EXT_LANGUAGE = {
   '.json': 'json',
   '.jsonc': 'json',
   '.java': 'java',
+  '.groovy': 'groovy',
+  '.gradle': 'groovy',
+  '.yml': 'yaml',
+  '.yaml': 'yaml',
+  '.sh': 'shell',
+  '.bash': 'shell',
+  '.zsh': 'shell',
+  '.toml': 'properties',
+  '.ini': 'properties',
+  '.cfg': 'properties',
+  '.conf': 'properties',
+  '.properties': 'properties',
+  '.env': 'properties',
+}
+
+/**
+ * 확장자가 없는 파일들 — 이름 자체가 형식이다.
+ * `.prettierrc`류는 내용이 JSON이고, Jenkinsfile은 Groovy(java로 근사)다.
+ */
+const NAME_LANGUAGE = {
+  '.gitignore': 'ignore',
+  '.gitattributes': 'ignore',
+  '.npmignore': 'ignore',
+  '.dockerignore': 'ignore',
+  '.prettierignore': 'ignore',
+  '.eslintignore': 'ignore',
+  '.prettierrc': 'json',
+  '.babelrc': 'json',
+  '.eslintrc': 'json',
+  '.npmrc': 'properties',
+  '.editorconfig': 'properties',
+  jenkinsfile: 'groovy',
+  dockerfile: 'docker',
+  makefile: 'shell', // 레시피 줄이 셸이다 — 근사
 }
 
 export function detectLanguage(filePath) {
+  const name = path.basename(filePath).toLowerCase()
+  if (NAME_LANGUAGE[name]) return NAME_LANGUAGE[name]
+  if (name.startsWith('.env')) return 'properties' // .env.production 류
   return EXT_LANGUAGE[path.extname(filePath).toLowerCase()] ?? 'plain'
 }
 
