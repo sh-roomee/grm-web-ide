@@ -89,6 +89,7 @@ function choose(name = matched.value[cursor.value]?.name) {
             :key="`${group.kind}:${item.name}`"
             class="item"
             :class="{ on: isCursor(item) }"
+            :title="item.name"
             @click="choose(item.name)"
             @mousemove="cursor = matched.findIndex((m) => m.name === item.name)"
           >

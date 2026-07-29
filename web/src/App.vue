@@ -1122,6 +1122,7 @@ function onKey(event) {
           :class="{ on: view === 'compare' }"
           role="tab"
           :aria-selected="view === 'compare'"
+          :title="`${compareInfo.base}…${repo?.branch ?? 'HEAD'} 비교`"
           @click="view = 'compare'"
         >
           ↔ {{ compareInfo.base }}
@@ -1266,7 +1267,7 @@ function onKey(event) {
             <span class="spacer" />
             <button class="drop-btn" title="비교 닫기" @click="closeCompare()">✕</button>
           </div>
-          <p class="cmp-meta">
+          <p class="cmp-meta" :title="`${compareInfo?.base}…${repo?.branch}`">
             {{ compareInfo?.base }}…{{ repo?.branch }} · 커밋 {{ compareInfo?.ahead ?? 0 }}개
             <template v-if="compareInfo?.behind">
               · 기준이 {{ compareInfo.behind }}개 앞서 있음

@@ -93,6 +93,7 @@ function onEnter() {
             :key="item.fullName"
             class="item"
             :class="{ on: item.name === selected }"
+            :title="item.name"
             @click="choose(item.name)"
           >
             <span class="name">
