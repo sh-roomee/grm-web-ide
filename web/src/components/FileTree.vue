@@ -144,7 +144,7 @@ const rows = computed(() => {
 </template>
 
 <style scoped>
-/* 접으면 헤더 한 줄, 펼치면 변경 목록과 세로 공간을 나눈다 */
+/* 접으면 헤더 한 줄. 펼쳤을 때의 높이는 부모(App)의 분할선이 정한다 */
 .file-tree {
   flex: none;
   display: flex;
@@ -153,10 +153,8 @@ const rows = computed(() => {
   border-bottom: 0.5px solid var(--border);
 }
 .file-tree.open {
-  flex: 0 1 auto;
-  max-height: 45%;
-  resize: vertical;
   overflow: hidden;
+  border-bottom: none; /* 분할선이 경계선을 대신한다 */
 }
 
 /* 변경사항 헤더(ChangeList .list-header)와 같은 급의 제목 — 같은 층위의 섹션이다 */

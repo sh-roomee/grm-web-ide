@@ -236,6 +236,37 @@ watch(treeOpen, (open) => {
 })
 
 /**
+ * 트리와 변경 목록 사이 분할선. 경계 어디를 잡아도 끌린다 — CSS resize의
+ * 구석 손잡이는 자리도 못 찾고 최대 높이도 고정이었다.
+ */
+const TREE_H_KEY = 'grmide:tree-height'
+const treeHeight = ref(Number.parseInt(localStorage.getItem(TREE_H_KEY) ?? '', 10) || 260)
+const changesSide = ref(null)
+
+function startSplit(event) {
+  const startY = event.clientY
+  // 저장값이 아니라 실제 그려진 높이에서 시작한다 — CSS 최대치에 눌려 있을 수 있다
+  const startH = changesSide.value?.firstElementChild?.offsetHeight ?? treeHeight.value
+  const max = (changesSide.value?.clientHeight ?? 600) - 140 // 변경 목록의 최소 자리
+
+  const onMove = (e) => {
+    treeHeight.value = Math.min(Math.max(startH + e.clientY - startY, 80), max)
+  }
+  const onUp = () => {
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+    localStorage.setItem(TREE_H_KEY, String(treeHeight.value))
+  }
+  document.addEventListener('mousemove', onMove)
+  document.addEventListener('mouseup', onUp)
+  // 끄는 동안 커서가 행 위를 지나도 모양이 흔들리지 않게
+  document.body.style.cursor = 'row-resize'
+  document.body.style.userSelect = 'none'
+}
+
+/**
  * 파일 내용을 DiffViewer가 이해하는 모양으로 바꾼다.
  * 한 컬럼 모드라 오른쪽만 채운다. 이러면 문법 강조·찾기(⌘F)·줄바꿈이 그대로 따라온다.
  */
@@ -923,14 +954,16 @@ function onKey(event) {
     <main class="body">
       <aside class="side">
         <!-- 변경사항 탭: 위에 디렉토리 트리(접이식), 아래 변경 목록 -->
-        <div v-if="view === 'changes'" class="changes-side">
+        <div v-if="view === 'changes'" ref="changesSide" class="changes-side">
           <FileTree
             v-model:open="treeOpen"
             :files="fileList"
             :active-path="tabs.active.value?.path ?? null"
+            :style="treeOpen ? { height: `${treeHeight}px` } : null"
             @select="openFile({ path: $event }, { pin: false })"
             @pin="openFile({ path: $event })"
           />
+          <div v-if="treeOpen" class="splitter" @mousedown.prevent="startSplit" />
           <ChangeList
             :groups="groups"
             :selected="selected"
@@ -1368,9 +1401,38 @@ function onKey(event) {
   height: 100%;
   min-height: 0;
 }
+.changes-side > :first-child {
+  /* 저장된 트리 높이가 창보다 커졌을 때 변경 목록의 자리를 지킨다 */
+  max-height: calc(100% - 120px);
+}
 .changes-side > :last-child {
   flex: 1;
   min-height: 0;
+}
+
+/* 트리/변경 목록 사이 분할선. 선은 얇게, 잡는 영역은 넉넉하게 */
+.splitter {
+  flex: none;
+  height: 7px;
+  margin: -3px 0;
+  cursor: row-resize;
+  position: relative;
+  z-index: 1;
+}
+.splitter::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 0;
+  right: 0;
+  height: 0.5px;
+  background: var(--border);
+  transition: background var(--fast) var(--ease);
+}
+.splitter:hover::after,
+.splitter:active::after {
+  height: 2px;
+  background: var(--accent);
 }
 
 /* 히스토리 탭에서만 좌측을 위아래로 나눈다 */
