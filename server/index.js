@@ -706,6 +706,32 @@ export function createServer({ repo, token, gitDir, dev = false }) {
     }),
   )
 
+  // --- 원격: fetch와 fast-forward pull만. 실패(네트워크·fast-forward 불가)는
+  // 서버 잘못이 아니라 저장소 상태라서 4xx로 내린다 — 500이면 콘솔에 스택이 쌓인다.
+  app.post(
+    '/api/fetch',
+    wrap(async (_req, res) => {
+      try {
+        res.json(await gitApi.fetchRemote(repo))
+      } catch (err) {
+        err.status ??= 409
+        throw err
+      }
+    }),
+  )
+
+  app.post(
+    '/api/pull',
+    wrap(async (_req, res) => {
+      try {
+        res.json(await gitApi.pullFastForward(repo))
+      } catch (err) {
+        err.status ??= 409
+        throw err
+      }
+    }),
+  )
+
   // --- 실시간 갱신: AI가 파일을 쓰는 동안 브라우저가 스스로 따라온다.
   app.get('/api/events', (req, res) => {
     res.writeHead(200, {

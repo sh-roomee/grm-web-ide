@@ -23,7 +23,7 @@ const props = defineProps({
   files: { type: Array, default: () => [] },
 })
 
-const emit = defineEmits(['close', 'open-file', 'open-commit', 'update:tab', 'add-context'])
+const emit = defineEmits(['close', 'open-file', 'open-commit', 'update:tab', 'add-context', 'action'])
 
 const TABS = [
   { key: 'all', label: '전체' },
@@ -47,6 +47,32 @@ const textTruncated = ref(false)
 const loading = ref(false)
 
 const trimmed = computed(() => term.value.trim())
+
+/**
+ * 액션 — 화면 기능을 이름으로 실행한다 (IntelliJ의 액션 검색 자리).
+ * 원격 조작은 이 둘이 전부다: fetch와 fast-forward pull.
+ * push·rebase·reset은 넣지 않는다 (CLAUDE.md 범위 규칙).
+ */
+const ACTIONS = [
+  {
+    key: 'fetch',
+    label: 'git fetch',
+    desc: '원격의 새 커밋을 가져온다 (브랜치 목록도 정리)',
+    words: ['fetch', 'git fetch', '페치', '가져오기'],
+  },
+  {
+    key: 'pull',
+    label: 'git pull',
+    desc: 'fast-forward만 — 갈라져 있으면 터미널로',
+    words: ['pull', 'git pull', '풀', '당겨오기', '받아오기'],
+  },
+]
+
+const actionHits = computed(() => {
+  const q = trimmed.value.toLowerCase()
+  if (!q) return []
+  return ACTIONS.filter((a) => a.words.some((w) => w.includes(q)))
+})
 
 // --- 파일: 받아둔 목록에서 바로 걸러낸다 (요청 없음)
 const fileHits = computed(() => {
@@ -126,11 +152,15 @@ const rows = computed(() => {
       .slice(0, limit)
       .map((h, i) => ({ kind: 'text', key: `t:${h.path}:${h.line}:${i}`, hit: h }))
 
+  const actionRows = () =>
+    actionHits.value.map((a) => ({ kind: 'action', key: `a:${a.key}`, action: a }))
+
   if (props.tab === 'file') push(fileRows(LIST_LIMIT))
   else if (props.tab === 'commit') push(commitRows(LIST_LIMIT))
   else if (props.tab === 'text') push(textRows(LIST_LIMIT))
   else {
     const groups = [
+      { label: '액션', items: actionRows() },
       { label: '파일', items: fileRows(PREVIEW_LIMIT.file) },
       { label: '커밋', items: commitRows(PREVIEW_LIMIT.commit) },
       { label: '텍스트', items: textRows(PREVIEW_LIMIT.text) },
@@ -160,6 +190,7 @@ function choose(row = current.value) {
   if (row.kind === 'file') emit('open-file', { path: row.hit.path })
   else if (row.kind === 'text') emit('open-file', { path: row.hit.path, line: row.hit.line })
   else if (row.kind === 'commit') emit('open-commit', row.commit.sha)
+  else if (row.kind === 'action') emit('action', row.action.key)
   emit('close')
 }
 
@@ -202,6 +233,7 @@ watch(
 const footPath = computed(() => {
   const row = current.value
   if (!row) return ''
+  if (row.kind === 'action') return row.action.desc
   if (row.kind === 'file') return row.hit.path
   if (row.kind === 'text') return `${row.hit.path}:${row.hit.line}`
   if (row.kind === 'commit') return `${row.commit.shortSha} · ${row.commit.author}`
@@ -263,8 +295,15 @@ const isSelected = (row) => pickable.value[cursor.value]?.key === row.key
             @click="choose(row)"
             @mousemove="cursor = pickable.findIndex((p) => p.key === row.key)"
           >
+            <!-- 액션 — 이름으로 실행하는 화면 기능 -->
+            <template v-if="row.kind === 'action'">
+              <span class="icon act">›_</span>
+              <span class="main">{{ row.action.label }}</span>
+              <span class="side">{{ row.action.desc }}</span>
+            </template>
+
             <!-- 파일 — 종류 아이콘이 곧 "파일 결과"라는 표시다 -->
-            <template v-if="row.kind === 'file'">
+            <template v-else-if="row.kind === 'file'">
               <FileIcon :path="row.hit.path" />
               <span class="main mono"
                 ><span
@@ -470,6 +509,12 @@ const isSelected = (row) => pickable.value[cursor.value]?.key === row.key
 .icon.file {
   background: var(--accent);
   color: #fff;
+}
+.icon.act {
+  background: var(--icon-indigo);
+  color: #fff;
+  font-size: 8px;
+  font-family: var(--mono);
 }
 .icon.commit {
   background: var(--status-conflicted);

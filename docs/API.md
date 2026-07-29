@@ -668,6 +668,21 @@ svg도 이 경로로 나가지만 화면은 `<img>`로만 그린다 — 문서�
 
 응답 `{ "ok": true }`. `stage`는 `git add`, `unstage`는 `git reset HEAD --`.
 
+## POST /api/fetch · POST /api/pull
+
+원격 조작은 이 둘이 전부다 — push·rebase·reset은 만들지 않는다. 본문은 없다.
+
+```json
+{ "counts": { "ahead": 0, "behind": 3 } }
+```
+
+- `fetch`는 `git fetch --prune`. `counts`는 업스트림 대비 앞선/뒤처진 커밋 수이고,
+  업스트림이 설정돼 있지 않으면 `null`이다.
+- `pull`은 `git pull --ff-only`. fast-forward가 불가능하면(로컬과 원격이 갈라짐)
+  히스토리를 건드리지 않고 실패한다. 응답에는 `output`(git 출력)이 더 있다.
+- 원격이 없으면 400, 그 외 실패(네트워크·fast-forward 불가)는 409로 내려간다.
+  메시지는 `error`에 담긴다.
+
 ## GET /api/events (SSE)
 
 ```

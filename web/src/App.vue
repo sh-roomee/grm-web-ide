@@ -236,6 +236,59 @@ watch(treeOpen, (open) => {
 })
 
 /**
+ * 액션 (통합 검색에서 이름으로 실행). 원격 조작은 fetch와 fast-forward pull이
+ * 전부다 — push·rebase·reset은 넣지 않는다.
+ *
+ * 진행과 결과는 우측 하단 토스트로 알린다(IntelliJ의 백그라운드 작업 자리).
+ * 원격 작업은 몇 초씩 걸릴 수 있어서, 돌고 있다는 표시가 없으면 눌린 건지
+ * 알 수 없어 다시 누르게 된다.
+ */
+const toast = ref(null) // { text, busy }
+let toastTimer = null
+function showToast(text, { busy = false, ttl = 5000 } = {}) {
+  toast.value = { text, busy }
+  if (toastTimer) clearTimeout(toastTimer)
+  if (!busy) toastTimer = setTimeout(() => (toast.value = null), ttl)
+}
+
+let actionBusy = false
+async function runAction(key) {
+  if (actionBusy) return // 원격 작업이 도는 중에 또 실행하지 않는다
+  actionBusy = true
+  showToast(key === 'fetch' ? 'git fetch 실행 중…' : 'git pull 실행 중…', { busy: true })
+  try {
+    if (key === 'fetch') {
+      const { counts } = await api.gitFetch()
+      if (!counts) showToast('fetch 완료')
+      else if (counts.behind === 0) showToast('fetch 완료 — 원격에 새 커밋 없음')
+      else showToast(`fetch 완료 — 원격에 새 커밋 ${counts.behind}개 (pull로 가져온다)`)
+    } else if (key === 'pull') {
+      const { output } = await api.gitPull()
+      showToast(output.includes('Already up to date') ? '이미 최신입니다' : 'pull 완료 (fast-forward)')
+      // HEAD가 움직였다 — 상단 커밋 표시와 목록·탭을 함께 되살린다
+      tabs.markStale()
+      repo.value = await api.fetchRepo()
+      await Promise.all([loadStatus(), loadRisks()])
+      await loadActive()
+    }
+    // 원격 refs가 움직였으므로, 히스토리를 이미 봤다면 새로 그린다
+    if (history.commits.value.length) {
+      history.loadRefs()
+      history.loadLog()
+    }
+  } catch (err) {
+    showToast(
+      err.message.includes('fast-forward')
+        ? 'fast-forward 불가 — 로컬과 원격이 갈라져 있다. 머지/리베이스 판단은 터미널에서.'
+        : err.message,
+      { ttl: 8000 },
+    )
+  } finally {
+    actionBusy = false
+  }
+}
+
+/**
  * 트리와 변경 목록 사이 분할선. 경계 어디를 잡아도 끌린다 — CSS resize의
  * 구석 손잡이는 자리도 못 찾고 최대 높이도 고정이었다.
  */
@@ -1108,6 +1161,7 @@ function onKey(event) {
       @open-file="openFile($event)"
       @open-commit="openCommit($event)"
       @add-context="stash($event)"
+      @action="runAction($event)"
     />
 
     <SummarySheet
@@ -1147,6 +1201,12 @@ function onKey(event) {
     <div v-if="fontBadge" class="font-badge">
       {{ codeFont.size.value }}px
       <span v-if="codeFont.isDefault.value">기본</span>
+    </div>
+
+    <!-- 원격 작업(fetch/pull)의 진행·결과. 실행 중에는 스피너가 돈다 -->
+    <div v-if="toast" class="toast" role="status">
+      <span v-if="toast.busy" class="toast-spin" />
+      {{ toast.text }}
     </div>
   </div>
 </template>
@@ -1350,6 +1410,40 @@ function onKey(event) {
   font-weight: 500;
   white-space: nowrap;
 }
+/* 원격 작업 토스트 — 우측 하단, font-badge와 같은 자리의 재료 */
+.toast {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(420px, 60vw);
+  padding: 9px 14px;
+  border-radius: var(--r-md);
+  background: var(--bg-sheet);
+  backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-pop);
+  color: var(--fg);
+  font-size: 12.5px;
+  pointer-events: none;
+}
+.toast-spin {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid var(--fg-faint);
+  border-top-color: var(--accent);
+  animation: toast-spin 0.8s linear infinite;
+}
+@keyframes toast-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .sync {
   flex: none;
   color: var(--fg-faint);

@@ -171,6 +171,10 @@ export const stageFile = (path) =>
 export const unstageFile = (path) =>
   request('/api/unstage', { method: 'POST', body: JSON.stringify({ path }) })
 
+// 원격 — 최소한만: fetch와 fast-forward pull. push·rebase는 넣지 않는다
+export const gitFetch = () => request('/api/fetch', { method: 'POST' })
+export const gitPull = () => request('/api/pull', { method: 'POST' })
+
 const MAX_RECONNECT_ATTEMPTS = 5
 
 /**

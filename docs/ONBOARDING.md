@@ -238,8 +238,10 @@ AI가 고치면 새 변경만 다시 뜬다. 마음에 들면 목록에서 `+`�
   보이고, `javascript:` 링크는 링크가 되지 않는다. 저장소 밖 그림도 불러오지 않는다.
   파서가 트리를 내놓고 Vue가 요소로 그리는 구조라 그렇다 — 그 덕에 문서가 스크립트를
   실행할 자리가 아예 없다.
-- **원격 조작이 없다.** push/pull/rebase/reset은 터미널이 더 빠르고, 잘못 누르면
-  되돌리기 어렵다. 쓰기 동작은 stage/unstage/commit까지다.
+- **원격은 fetch/pull까지만.** 통합 검색(Shift 두 번)에서 `fetch`·`pull`을 액션으로
+  실행한다. pull은 fast-forward만 — 갈라져 있으면 실패하고 터미널로 안내한다.
+  push/rebase/reset처럼 히스토리를 다시 쓰는 조작은 없다. 쓰기 동작은
+  stage/unstage/commit까지다.
 
 `git`이 아는 파일만 다룬다(`git ls-files`, `git grep`). 그래서 `.gitignore`가 자동으로
 지켜지고 `node_modules`가 검색 결과를 덮지 않는다.

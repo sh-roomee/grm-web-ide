@@ -697,3 +697,38 @@ export async function stageFile(repo, path) {
 export async function unstageFile(repo, path) {
   await git(repo, ['reset', '-q', 'HEAD', '--', path])
 }
+
+// --- 원격. 지원은 fetch와 fast-forward pull까지다 — 히스토리를 다시 쓰는
+// 조작(push·rebase·reset)은 넣지 않는다. CLAUDE.md 범위 규칙 참고.
+
+/** 업스트림 대비 (앞선 커밋, 뒤처진 커밋) 수. 업스트림이 없으면 null. */
+export async function upstreamCounts(repo) {
+  const out = await git(repo, ['rev-list', '--left-right', '--count', 'HEAD...@{upstream}'], {
+    allowFail: true,
+  })
+  const m = out.trim().match(/^(\d+)\s+(\d+)$/)
+  return m ? { ahead: Number(m[1]), behind: Number(m[2]) } : null
+}
+
+async function requireRemote(repo) {
+  const remotes = (await git(repo, ['remote'], { allowFail: true })).trim()
+  if (!remotes) {
+    throw Object.assign(new Error('원격 저장소(remote)가 없습니다'), { status: 400 })
+  }
+}
+
+export async function fetchRemote(repo) {
+  await requireRemote(repo)
+  await git(repo, ['fetch', '--prune'])
+  return { counts: await upstreamCounts(repo) }
+}
+
+/**
+ * fast-forward만 허용하는 pull. 로컬과 원격이 갈라져 있으면 실패한다 —
+ * 그때 필요한 것은 머지/리베이스 판단이고, 그 판단은 터미널에서 한다.
+ */
+export async function pullFastForward(repo) {
+  await requireRemote(repo)
+  const out = await git(repo, ['pull', '--ff-only'])
+  return { output: out.trim(), counts: await upstreamCounts(repo) }
+}
