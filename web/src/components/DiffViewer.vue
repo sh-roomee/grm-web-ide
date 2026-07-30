@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import { buildSpans, tokenizeLine, findRanges } from '../highlight/index.js'
 import { flattenInline } from '../inline.js'
@@ -336,12 +336,39 @@ function closeFind() {
 }
 
 /** n번째 매치로 이동한다. */
-function gotoHit(index) {
+/**
+ * n번째 매치로 이동한다.
+ *
+ * 가상 스크롤에서는 그 줄이 아직 DOM에 없다. 그래서 **매치가 든 항목을 목록에서
+ * 찾아 오프셋으로 먼저 옮기고**, 그려진 뒤에 정확한 위치로 다듬는다.
+ */
+async function gotoHit(index) {
   if (!hitCount.value) return
   const next = (index + hitCount.value) % hitCount.value
   findCursor.value = next
-  const el = scroller.value?.querySelector(`[data-hit="${next}"]`)
-  el?.scrollIntoView({ block: 'center', inline: 'nearest' })
+
+  // 셀의 매치 번호는 `first`부터 hits.length개다. 한 줄 보기의 `hit`은 그 셀의
+  // 첫 번호만 들고 있어서, 번호가 넘어가지 않는 **마지막** 항목이 그 자리다.
+  const list = renderItems.value
+  let at = -1
+  for (let i = 0; i < list.length; i++) {
+    const item = list[i]
+    if (item.kind === 'line') {
+      if (item.hit !== null && item.hit !== undefined && item.hit <= next) at = i
+    } else if (item.kind === 'row') {
+      const inCell = (cell) =>
+        cell?.hits?.length && next >= cell.first && next < cell.first + cell.hits.length
+      if (inCell(item.left) || inCell(item.right)) {
+        at = i
+        break
+      }
+    }
+  }
+  await scrollToIndex(at)
+  scroller.value?.querySelector(`[data-hit="${next}"]`)?.scrollIntoView({
+    block: 'center',
+    inline: 'nearest',
+  })
 }
 
 const stepHit = (delta) => gotoHit(findCursor.value + delta)
@@ -358,7 +385,15 @@ watch(findTerm, () => {
  * 파일을 막 열었을 때는 행이 아직 그려지지 않았을 수 있다. 한 프레임 뒤에 한 번
  * 더 시도한다 — 첫 시도에서 조용히 실패하면 "파일만 열리고 안 움직인다"가 된다.
  */
-function scrollToLine(lineNo, retry = true) {
+async function scrollToLine(lineNo, retry = true) {
+  // 가상 스크롤에서는 그 줄이 DOM에 없을 수 있다. 목록에서 자리를 찾아 먼저 옮긴다.
+  const at = indexOfItem((item) =>
+    item.kind === 'line'
+      ? item.cell?.num === lineNo && item.side === 'right'
+      : item.kind === 'row' && item.row.right?.num === lineNo,
+  )
+  if (at >= 0) await scrollToIndex(at)
+
   const el = scroller.value?.querySelector(`[data-line="${lineNo}"]`)
   if (!el) {
     if (retry) requestAnimationFrame(() => scrollToLine(lineNo, false))
@@ -372,12 +407,21 @@ function scrollToLine(lineNo, retry = true) {
 defineExpose({ openFind, scrollToLine })
 
 /** 한 쪽(좌/우)의 문법 토큰. 파일이 바뀔 때만 다시 계산된다. */
+/**
+ * 한 줄의 문법 토큰을 **필요할 때** 만든다.
+ *
+ * 12,500줄 파일을 열 때 파일 전체를 미리 토크나이즈하면 그것만으로 2초가 걸린다
+ * (실측). 토큰을 쓰는 곳은 span 만들기 한 곳뿐이고 그것도 화면에 보이는 줄만
+ * 필요하므로, 함수를 넘겨 두고 그때 계산한다. 한 번 계산하면 캐시한다.
+ */
 function sideTokens(side) {
   if (!side) return null
-  return tokenizeLine(props.diff.language, side.text, {
-    lineNo: side.num,
-    sections: props.diff.sections,
-  })
+  let cache = null
+  return () =>
+    (cache ??= tokenizeLine(props.diff.language, side.text, {
+      lineNo: side.num,
+      sections: props.diff.sections,
+    }))
 }
 
 /**
@@ -433,12 +477,31 @@ const items = computed(() => {
   return baseItems.value.map((item) => {
     if (item.kind !== 'row') return item
 
+    /**
+     * `spans`는 **접근할 때** 만든다 (getter + 메모).
+     *
+     * 찾기(⌘F)는 글자를 칠 때마다 이 목록을 다시 만드는데, span 만들기는 줄마다
+     * 경계를 모아 조각으로 쪼개는 일이라 가장 비싸다. 12,500줄 파일에서 키 하나에
+     * 5.5초가 걸리는 것을 실측했다. 화면에 그려지는 줄만 span을 만들면 그 비용이
+     * 보이는 만큼으로 줄어든다 — 가상 스크롤과 짝이 되는 절반이다.
+     *
+     * `hits`는 그대로 미리 센다. 찾기 번호(`data-hit`)가 파일 전체에서 이어져야
+     * 하고 `N / M`의 M도 전체를 세야 나온다 — 그건 문자열 검색뿐이라 싸다.
+     */
     const build = (side, tokens, counted = true) => {
       if (!side) return null
       const hits = query && counted ? findRanges(side.text, query) : null
       const first = hits ? ++hitIndex : null // 이 셀의 첫 매치 번호
       if (hits && hits.length > 1) hitIndex += hits.length - 1
-      return { spans: buildSpans(side.text, side.words, tokens, hits), hits, first }
+      let cache = null
+      return {
+        hits,
+        first,
+        get spans() {
+          // tokens는 함수다 — 토크나이즈도 이 순간까지 미뤄 둔다 (sideTokens 참고)
+          return (cache ??= buildSpans(side.text, side.words, tokens?.() ?? [], hits))
+        },
+      }
     }
 
     // 한 줄 보기의 문맥 행은 왼쪽을 그리지 않는다 (양쪽 내용이 같다)
@@ -468,13 +531,15 @@ const hitCount = computed(() => {
  * 하는지가 보이지 않으면 "전체를 보여준다"는 것만으로는 쓸모가 없다. 오른쪽
  * 가장자리에 변경 블록 위치를 눈금으로 찍고, 누르면 그 자리로 간다.
  *
- * 위치는 행 인덱스 비율로 잡는다. 모든 행 높이가 같아서 스크롤 비율과 거의
- * 일치하고, 실제 이동은 scrollIntoView가 정확히 처리한다.
+ * 위치는 **누적 높이 비율**로 잡는다. 코멘트가 달린 줄이나 훅 헤더는 높이가 달라서
+ * 행 인덱스 비율로는 눈금이 실제 자리에서 밀린다. 실제 이동은 오프셋 이동 뒤
+ * scrollIntoView가 정확히 처리한다.
  */
 const markers = computed(() => {
   const list = renderItems.value
-  const total = list.length
-  if (!total) return []
+  if (!list.length) return []
+  const off = offsets.value
+  const total = totalH.value || 1
   const out = []
   list.forEach((item, index) => {
     if (item.blockIndex === null || item.blockIndex === undefined) return
@@ -482,7 +547,7 @@ const markers = computed(() => {
     out.push({
       blockIndex: item.blockIndex,
       type: item.kind === 'line' ? item.type : item.row.type,
-      ratio: index / total,
+      ratio: off[index] / total,
     })
   })
   return out
@@ -495,11 +560,16 @@ watch(
   () => {
     cursor.value = 0
     if (scroller.value) scroller.value.scrollTop = 0
+    // 파일이 바뀌면 높이 보정값은 다른 파일의 것이다
+    scrollTop.value = 0
+    extraH.value = new Map()
   },
 )
 
-function scrollToBlock(index) {
+async function scrollToBlock(index) {
   cursor.value = index
+  // 렌더 안 된 자리일 수 있으니 오프셋으로 먼저 옮긴다
+  await scrollToIndex(indexOfItem((item) => item.blockIndex === index))
   const el = scroller.value?.querySelector(`[data-block="${index}"]`)
   // behavior: 'smooth'를 쓰면 안 된다. 중첩 스크롤 컨테이너에서 아무 일도
   // 일어나지 않는 경우가 있다(측정으로 확인). 변경 사이 점프는 즉시 이동이 낫다.
@@ -539,11 +609,213 @@ function setLayout(value) {
   localStorage.setItem(LAYOUT_KEY, value)
 }
 
-/** 화면에 그리는 목록. 마커·찾기 번호도 이걸 기준으로 센다. */
-const renderItems = computed(() => (inlineOn.value ? inlineItems.value : items.value))
-
 /** 한 줄 보기 목록. 펼치는 규칙은 `inline.js`에 있고 테스트로 고정해 두었다. */
 const inlineItems = computed(() => (inlineOn.value ? flattenInline(items.value) : []))
+
+/**
+ * 화면에 그리는 목록. 마커·찾기 번호도 이걸 기준으로 센다.
+ *
+ * `inlineItems`보다 뒤에 와야 한다. 아래 가상 스크롤의 `watch`가 설정 시점에
+ * 이 목록을 한 번 평가하는데(의존성을 잡기 위해), 그때 `inlineItems`가 아직
+ * 초기화되지 않았으면 TDZ 오류로 뷰어가 통째로 안 그려진다 — 실제로 밟았다.
+ */
+const renderItems = computed(() => (inlineOn.value ? inlineItems.value : items.value))
+
+// ---------------------------------------------------------------------------
+// 가상 스크롤 — 보이는 만큼만 그린다.
+//
+// 12,546줄 파일을 열면 렌더에 7초, 그 상태에서 ⌘F 키 하나에 5.5초가 걸리는 것을
+// 실측했다. lock 파일·마이그레이션 스냅샷처럼 수천 줄짜리는 어느 저장소에나 있고
+// AI가 그런 파일을 건드리는 일도 흔하다. 그때마다 IDE로 넘어가야 하면 이 도구의
+// 존재 이유가 무너진다.
+//
+// 방식은 **위아래 여백(spacer) + 보이는 구간만 렌더**다. 항목이 정상 흐름에
+// 남으므로 훅 헤더의 sticky, grid 컬럼, 한쪽 컬럼 선택이 그대로 동작한다.
+// transform으로 띄우는 방식은 그 셋을 다 깨뜨린다.
+// ---------------------------------------------------------------------------
+
+/**
+ * 이 아래로는 전부 그린다.
+ *
+ * 가상 스크롤을 켜면 화면 밖 줄이 DOM에 없어서 **그 범위를 넘는 드래그 선택이
+ * 끊긴다.** 사람이 손으로 읽고 복사하는 크기의 파일에서 그 대가를 치를 이유가
+ * 없다. 이 숫자를 넘는 파일은 대개 기계가 만든 것이라(lock·스냅샷) 통째로
+ * 선택하는 일이 없다.
+ */
+const VIRTUAL_MIN = 2000
+const OVERSCAN = 14 // 위아래 여유 행. 스크롤 중 빈칸이 보이지 않을 만큼만
+
+const scrollTop = ref(0)
+const viewportH = ref(0)
+const rowH = ref(20) // 한 줄 높이. 실측으로 채운다 (글자 크기에 따라 달라진다)
+const extraH = ref(new Map()) // key → 기본 높이를 넘는 만큼 (코멘트·줄바꿈·훅 헤더)
+
+const virtualOn = computed(() => renderItems.value.length > VIRTUAL_MIN)
+
+function itemHeight(item) {
+  return rowH.value + (extraH.value.get(item.key) ?? 0)
+}
+
+/**
+ * 항목별 누적 오프셋. `offsets[i]`는 i번째 항목의 위쪽 좌표다.
+ *
+ * 높이가 다른 항목(코멘트가 달린 줄, 훅 헤더, 줄바꿈된 긴 줄)이 섞여 있어서
+ * 곱셈으로는 자리를 못 찾는다. 실측한 높이를 표에 넣고 누적합을 다시 만든다.
+ */
+const offsets = computed(() => {
+  const list = renderItems.value
+  const out = new Float64Array(list.length + 1)
+  for (let i = 0; i < list.length; i++) out[i + 1] = out[i] + itemHeight(list[i])
+  return out
+})
+
+const totalH = computed(() => offsets.value[renderItems.value.length] ?? 0)
+
+/** 오프셋 배열에서 y 좌표가 든 항목의 인덱스. */
+function indexAt(y) {
+  const off = offsets.value
+  let lo = 0
+  let hi = renderItems.value.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (off[mid + 1] <= y) lo = mid + 1
+    else hi = mid
+  }
+  return lo
+}
+
+const range = computed(() => {
+  const total = renderItems.value.length
+  if (!virtualOn.value) return { start: 0, end: total }
+  const start = Math.max(0, indexAt(scrollTop.value) - OVERSCAN)
+  const end = Math.min(total, indexAt(scrollTop.value + viewportH.value) + 1 + OVERSCAN)
+  return { start, end }
+})
+
+const visibleItems = computed(() => renderItems.value.slice(range.value.start, range.value.end))
+const padTop = computed(() => (virtualOn.value ? offsets.value[range.value.start] : 0))
+const padBottom = computed(() =>
+  virtualOn.value ? Math.max(0, totalH.value - offsets.value[range.value.end]) : 0,
+)
+
+function onScroll() {
+  const el = scroller.value
+  if (!el) return
+  scrollTop.value = el.scrollTop
+  viewportH.value = el.clientHeight
+}
+
+/**
+ * 그려진 항목의 실제 높이를 재서 표를 고친다.
+ *
+ * 기본 높이(한 줄)로 시작하므로 코멘트·훅 헤더·줄바꿈된 줄은 처음엔 짧게 잡혀
+ * 있다. 재서 고치되, **화면 위쪽 항목이 커진 만큼 scrollTop을 밀어 준다** —
+ * 그러지 않으면 보고 있던 줄이 위로 튄다.
+ */
+function measureRows() {
+  const el = scroller.value
+  if (!el || !virtualOn.value) return
+  const nodes = el.querySelectorAll('[data-vkey]')
+  if (!nodes.length) return
+
+  // 한 항목이 여러 요소일 수 있다 — 줄 하나 + 그 아래 코멘트 여러 개. 같은 키로
+  // 붙여 두고 합산한다. 래퍼로 감싸면 훅 헤더의 sticky가 자기 래퍼 안에 갇힌다.
+  const sum = new Map()
+  const tops = new Map()
+  for (const node of nodes) {
+    const key = node.dataset.vkey
+    const box = node.getBoundingClientRect()
+    if (!box.height) continue
+    sum.set(key, (sum.get(key) ?? 0) + box.height)
+    if (!tops.has(key)) tops.set(key, box.top)
+  }
+
+  const viewTop = el.getBoundingClientRect().top
+  const next = new Map(extraH.value)
+  let changed = false
+  let above = 0 // 화면 위쪽에서 늘어난 만큼
+
+  for (const [key, height] of sum) {
+    const extra = Math.max(0, Math.round(height - rowH.value))
+    const had = next.get(key) ?? 0
+    if (Math.abs(extra - had) <= 1) continue
+    next.set(key, extra)
+    changed = true
+    if (tops.get(key) < viewTop) above += extra - had
+  }
+  if (!changed) return
+  extraH.value = next
+  // 보고 있던 줄이 위로 튀지 않게, 위쪽에서 늘어난 만큼 스크롤을 밀어 준다
+  if (above) {
+    el.scrollTop += above
+    scrollTop.value = el.scrollTop
+  }
+}
+
+/** 한 줄 높이를 실측한다. 글자 크기(⌘+/⌘-)를 바꾸면 달라진다. */
+function measureRowHeight() {
+  const el = scroller.value
+  const probe = el?.querySelector('.line, .iline')
+  const h = probe?.getBoundingClientRect().height
+  if (h && Math.abs(h - rowH.value) > 0.5) {
+    rowH.value = h
+    extraH.value = new Map() // 기준이 바뀌었으니 보정값을 버린다
+  }
+}
+
+let measureQueued = false
+function queueMeasure() {
+  if (measureQueued) return
+  measureQueued = true
+  requestAnimationFrame(() => {
+    measureQueued = false
+    measureRowHeight()
+    measureRows()
+  })
+}
+
+// 그려진 것이 바뀌면 다시 잰다. 글자 크기(⌘+/⌘-)는 컨테이너 크기를 바꾸므로
+// ResizeObserver가 같이 잡는다 — 따로 지켜볼 상태가 없다.
+watch(visibleItems, queueMeasure)
+
+let resizeObserver = null
+
+onMounted(() => {
+  const el = scroller.value
+  if (!el) return
+  viewportH.value = el.clientHeight
+  resizeObserver = new ResizeObserver(() => {
+    viewportH.value = el.clientHeight
+    queueMeasure()
+  })
+  resizeObserver.observe(el)
+  queueMeasure()
+})
+
+onUnmounted(() => resizeObserver?.disconnect())
+
+/**
+ * 항목 인덱스로 스크롤한다. 가상 스크롤에서는 그 줄이 아직 DOM에 없을 수 있어
+ * **오프셋으로 먼저 옮기고**, 그려진 다음에 정확한 위치로 다듬는다.
+ */
+async function scrollToIndex(index, { block = 'center' } = {}) {
+  const el = scroller.value
+  if (!el || index < 0) return
+  if (virtualOn.value) {
+    const y = offsets.value[index]
+    const target = block === 'center' ? y - el.clientHeight / 2 + rowH.value / 2 : y
+    el.scrollTop = Math.max(0, target)
+    onScroll()
+    await nextTick()
+    queueMeasure()
+    await nextTick()
+  }
+}
+
+/** 조건에 맞는 항목의 인덱스. 없으면 -1. */
+function indexOfItem(match) {
+  return renderItems.value.findIndex(match)
+}
 
 // git -U 에 안전하게 넘길 수 있는 크기. 어떤 파일이든 전체가 한 훅으로 온다.
 const FULL_CONTEXT = 100000
@@ -730,6 +1002,7 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
           inlineOn ? 'inline' : 'split',
           selectSide && `sel-${selectSide}`,
         ]"
+        @scroll.passive="onScroll()"
         @mouseup="gutterUp()"
         @mouseleave="dragging = null"
       >
@@ -764,9 +1037,14 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
         <p v-else-if="!diff?.hunks.length" class="notice">표시할 변경사항이 없습니다.</p>
 
         <template v-else>
-          <template v-for="item in renderItems" :key="item.key">
-            <div v-if="item.kind === 'hunk' && single" />
-            <div v-else-if="item.kind === 'hunk'" class="hunk">
+          <!-- 가상 스크롤: 화면 밖은 여백으로 자리만 잡는다 -->
+          <div v-if="padTop" class="v-pad" :style="{ height: `${padTop}px` }" />
+
+          <template v-for="item in visibleItems" :key="item.key">
+            <!-- 파일 뷰어는 훅이 하나뿐이라 헤더를 그리지 않는다. 자리는 재야 하므로
+                 키는 남긴다 — 높이 0으로 측정되어 표가 스스로 맞춰진다 -->
+            <div v-if="item.kind === 'hunk' && single" :data-vkey="item.key" />
+            <div v-else-if="item.kind === 'hunk'" class="hunk" :data-vkey="item.key">
               @@ -{{ item.hunk.oldStart }},{{ item.hunk.oldLines }} +{{ item.hunk.newStart }},{{
                 item.hunk.newLines
               }} @@
@@ -783,6 +1061,7 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
               class="iline"
               :class="[`t-${item.type}`, { 'with-blame': blame }]"
               :data-block="item.blockIndex ?? undefined"
+              :data-vkey="item.key"
             >
               <span
                 v-if="blame"
@@ -822,6 +1101,7 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
               :class="[`t-${item.row.type}`, { single, 'with-blame': blame }]"
               :data-block="item.blockIndex ?? undefined"
               :data-line="single ? item.row.right?.num : undefined"
+              :data-vkey="item.key"
             >
               <span
                 v-if="blame"
@@ -883,7 +1163,12 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
 
             <!-- 이 줄에 달린 코멘트 (두 보기 방식이 같은 마크업을 쓴다) -->
             <template v-if="item.kind === 'row' || item.kind === 'line'">
-              <div v-for="entry in commentsAt(item)" :key="entry.comment.id" class="comment">
+              <div
+                v-for="entry in commentsAt(item)"
+                :key="entry.comment.id"
+                class="comment"
+                :data-vkey="item.key"
+              >
                 <span class="comment-where">
                   {{ rangeLabel(entry.comment) }}{{ entry.side === 'left' ? ' · 삭제된 쪽' : '' }}
                 </span>
@@ -898,7 +1183,7 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
               </div>
 
               <!-- 코멘트 입력 -->
-              <div v-if="composingAt(item)" class="comment compose">
+              <div v-if="composingAt(item)" class="comment compose" :data-vkey="item.key">
                 <textarea
                   class="comment-input"
                   :placeholder="`${composing.from === composing.to ? `${composing.from}행` : `${composing.from}–${composing.to}행`}에 코멘트 — ⌘Enter 저장, Esc 취소`"
@@ -920,6 +1205,8 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
               </div>
             </template>
           </template>
+
+          <div v-if="padBottom" class="v-pad" :style="{ height: `${padBottom}px` }" />
 
           <p v-if="diff.truncated" class="notice">
             변경량이 너무 커서 일부만 표시했습니다. 터미널에서 <code>git diff</code>로
@@ -1189,6 +1476,11 @@ watch(context, (value) => emit('update:context', value), { immediate: true })
  * 번호칸도 같이 커진다 — px로 박아 두면 17px에서 네 자리 줄번호가 잘린다.
  * 4.2em은 12.5px에서 52.5px, 지금까지의 폭이다.
  */
+/* 가상 스크롤의 위아래 여백. 화면 밖 줄의 자리만 잡는다 */
+.v-pad {
+  flex: none;
+}
+
 .line {
   display: grid;
   grid-template-columns: 4.2em minmax(0, 1fr) 4.2em minmax(0, 1fr);

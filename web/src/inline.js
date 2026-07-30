@@ -10,6 +10,9 @@
  * 변경으로" 이동이 같은 자리를 두 번 세고, 마커도 두 개가 겹쳐 찍힌다.
  *
  * 훅 헤더 같은 다른 항목은 그대로 통과시킨다.
+ *
+ * `spans`는 getter로 넘긴다. 원본 셀의 span 계산이 **접근할 때** 일어나는데
+ * (DiffViewer 참고), 여기서 값으로 읽으면 펼치는 순간 파일 전체가 계산된다.
  */
 export function flattenInline(items) {
   const out = []
@@ -28,7 +31,9 @@ export function flattenInline(items) {
         sign: '',
         side: 'right',
         cell: row.right,
-        spans: right?.spans,
+        get spans() {
+          return right?.spans
+        },
         hit: right?.first ?? null,
         oldNum: row.left?.num ?? null,
         newNum: row.right?.num ?? null,
@@ -46,7 +51,9 @@ export function flattenInline(items) {
         sign: '−',
         side: 'left',
         cell: row.left,
-        spans: left?.spans,
+        get spans() {
+          return left?.spans
+        },
         hit: left?.first ?? null,
         oldNum: row.left.num,
         newNum: null,
@@ -62,7 +69,9 @@ export function flattenInline(items) {
         sign: '+',
         side: 'right',
         cell: row.right,
-        spans: right?.spans,
+        get spans() {
+          return right?.spans
+        },
         hit: right?.first ?? null,
         oldNum: null,
         newNum: row.right.num,
